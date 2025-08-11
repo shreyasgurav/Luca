@@ -1,0 +1,54 @@
+[dotenv@17.2.1] injecting env (4) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+(node:48307) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Server listening on http://localhost:3000
+Error: OpenAI error 400: {
+  "error": {
+    "message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+    "type": "invalid_request_error",
+    "param": "max_tokens",
+    "code": "unsupported_parameter"
+  }
+}
+    at callOpenAI (/Users/shreyasgurav/Desktop/cheatingai/Server/lib/openaiClient.js:48:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async handler (/Users/shreyasgurav/Desktop/cheatingai/Server/functions/chat.js:31:20)
+🔢 Generating embedding for text: hey...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+Error: OpenAI error 400: {
+  "error": {
+    "message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+    "type": "invalid_request_error",
+    "param": "max_tokens",
+    "code": "unsupported_parameter"
+  }
+}
+    at callOpenAI (/Users/shreyasgurav/Desktop/cheatingai/Server/lib/openaiClient.js:48:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async handler (/Users/shreyasgurav/Desktop/cheatingai/Server/functions/chat.js:31:20)
+Error: OpenAI error 400: {
+  "error": {
+    "message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+    "type": "invalid_request_error",
+    "param": "max_tokens",
+    "code": "unsupported_parameter"
+  }
+}
+    at callOpenAI (/Users/shreyasgurav/Desktop/cheatingai/Server/lib/openaiClient.js:48:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async handler (/Users/shreyasgurav/Desktop/cheatingai/Server/functions/chat.js:31:20)
+🔢 Generating embedding for text: hey...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+Error: OpenAI error 400: {
+  "error": {
+    "message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+    "type": "invalid_request_error",
+    "param": "max_tokens",
+    "code": "unsupported_parameter"
+  }
+}
+    at callOpenAI (/Users/shreyasgurav/Desktop/cheatingai/Server/lib/openaiClient.js:48:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async handler (/Users/shreyasgurav/Desktop/cheatingai/Server/functions/chat.js:31:20)
