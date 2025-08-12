@@ -1,4 +1,5 @@
 import Foundation
+import FirebaseAuth
 
 struct AnalyzeResponse: Decodable {
     let assistant_text: String
@@ -119,7 +120,80 @@ final class ClientAPI {
     }
     
     private func extractAndStoreMemories(userMessage: String, assistantResponse: String) async {
-        // Store user information if it contains personal details
+        // Use the server-side intelligent memory extraction
+        await extractMemoriesFromServer(content: "\(userMessage)\n\nAssistant: \(assistantResponse)")
+    }
+    
+    private func extractMemoriesFromServer(content: String) async {
+        do {
+            let url = URL(string: "\(baseURL)/api/memory/extract")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            let payload = [
+                "content": content,
+                "userId": Auth.auth().currentUser?.uid ?? "unknown",
+                "sessionId": SessionManager.shared.currentSessionId
+            ]
+            
+            let jsonData = try JSONSerialization.data(withJSONObject: payload)
+            request.httpBody = jsonData
+            
+            print("🧠 Extracting memories from conversation...")
+            
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                let responseData = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                
+                if let success = responseData?["success"] as? Bool, success,
+                   let extractedFacts = responseData?["extractedFacts"] as? [[String: Any]] {
+                    
+                    print("✅ Extracted \(extractedFacts.count) memories from conversation")
+                    
+                    // Store each extracted memory with proper embeddings
+                    for fact in extractedFacts {
+                        guard let text = fact["text"] as? String,
+                              let kindString = fact["kind"] as? String,
+                              let importance = fact["importance"] as? Double else { continue }
+                        
+                        let memoryType = mapStringToMemoryType(kindString)
+                        
+                        await VectorMemoryManager.shared.storeMemoryWithEmbedding(
+                            content: text,
+                            type: memoryType,
+                            source: .conversation,
+                            importance: importance
+                        )
+                        
+                        print("📝 Stored \(memoryType.rawValue) memory: \(text.prefix(50))...")
+                    }
+                }
+            }
+        } catch {
+            print("❌ Error extracting memories from server: \(error)")
+            // Fallback to simple heuristic extraction
+            await fallbackMemoryExtraction(userMessage: content)
+        }
+    }
+    
+    private func mapStringToMemoryType(_ kindString: String) -> MemoryType {
+        switch kindString.lowercased() {
+        case "personal": return .personal
+        case "preference": return .preference
+        case "professional": return .professional
+        case "goal": return .goal
+        case "instruction": return .instruction
+        case "knowledge": return .knowledge
+        case "relationship": return .relationship
+        case "event": return .event
+        default: return .knowledge
+        }
+    }
+    
+    private func fallbackMemoryExtraction(userMessage: String) async {
+        // Simple fallback when server extraction fails
         if containsPersonalInfo(userMessage) {
             await VectorMemoryManager.shared.storeMemoryWithEmbedding(
                 content: userMessage,
@@ -129,43 +203,12 @@ final class ClientAPI {
             )
         }
         
-        // Store preferences if user expresses likes/dislikes
         if containsPreferences(userMessage) {
             await VectorMemoryManager.shared.storeMemoryWithEmbedding(
                 content: userMessage,
                 type: .preference,
                 source: .conversation,
                 importance: 0.7
-            )
-        }
-        
-        // Store goals and projects
-        if containsGoals(userMessage) {
-            await VectorMemoryManager.shared.storeMemoryWithEmbedding(
-                content: userMessage,
-                type: .goal,
-                source: .conversation,
-                importance: 0.75
-            )
-        }
-        
-        // Store instructions for how user wants to be helped
-        if containsInstructions(userMessage) {
-            await VectorMemoryManager.shared.storeMemoryWithEmbedding(
-                content: userMessage,
-                type: .instruction,
-                source: .explicit,
-                importance: 0.9
-            )
-        }
-        
-        // Store important facts shared by user
-        if containsImportantFacts(userMessage) {
-            await VectorMemoryManager.shared.storeMemoryWithEmbedding(
-                content: userMessage,
-                type: .knowledge,
-                source: .conversation,
-                importance: 0.6
             )
         }
     }

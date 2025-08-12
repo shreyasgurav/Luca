@@ -33,6 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Pre-warm selection controller
         selectionController = SelectionController()
+        
+        // Automatically show main dashboard window on app launch
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            MainWindow.shared.show()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -51,13 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open AI Assistant\t⌘\\", action: #selector(toggleSelection), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Toggle Response Overlay\t⌘/", action: #selector(toggleResponseOverlay), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Memory Manager", action: #selector(showMemoryManager), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Vector Memory", action: #selector(showVectorMemory), keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Sign In", action: #selector(showSignIn), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Sign Out", action: #selector(signOut), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Open Main Window", action: #selector(showSignIn), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit CheatingAI", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -102,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func showSignIn() {
-        AuthenticationWindow.shared.show()
+        MainWindow.shared.show()
     }
     
     @objc private func signOut() {
@@ -117,6 +117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc private func showVectorMemory() {
         VectorMemoryWindow.shared.show()
+    }
+    
+    @objc private func showDashboard() {
+        MainWindow.shared.show()
     }
 
     @objc private func quit() {

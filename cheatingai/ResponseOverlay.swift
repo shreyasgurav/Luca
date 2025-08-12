@@ -39,7 +39,7 @@ final class ResponseOverlay {
         DispatchQueue.main.async { [self] in
             // Check if user is authenticated
             if Auth.auth().currentUser == nil {
-                AuthenticationWindow.shared.show()
+                MainWindow.shared.show()
                 return
             }
             

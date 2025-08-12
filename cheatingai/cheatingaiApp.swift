@@ -11,6 +11,7 @@ import AppKit
 @main
 struct cheatingaiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    
     var body: some Scene {
         Settings { EmptyView() }
     }
