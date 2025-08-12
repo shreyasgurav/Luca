@@ -1,4 +1,4 @@
-CheatingAI (macOS menu bar screenshot-to-ChatGPT)
+Nova (macOS AI Assistant with Screen Capture)
 
 Quick start
 - Client (macOS): open Xcode, enable Screen Recording permission after first capture attempt.

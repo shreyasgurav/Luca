@@ -513,7 +513,7 @@ class VectorMemoryWindow {
             defer: false
         )
         
-        window?.title = "Vector Memory System - CheatingAI"
+        window?.title = "Vector Memory System - Nova"
         window?.contentViewController = hostingController
         window?.isReleasedWhenClosed = false
         window?.center()

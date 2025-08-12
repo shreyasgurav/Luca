@@ -28,10 +28,10 @@ module.exports = async function handler(req, res) {
     const { message, sessionId, promptContext } = body || {};
     if (!message) { res.statusCode = 400; return res.end('Missing message'); }
 
-    // Build ChatGPT-style structured prompt
-    const enhancedPrompt = buildChatGPTStylePrompt(promptContext, message);
+    // Build enhanced context for Nova
+    const enhancedPrompt = buildNovaContextPrompt(promptContext, message);
     
-    console.log('🤖 Chat request with enhanced context length:', enhancedPrompt.length);
+    console.log('🤖 Nova chat request with context length:', enhancedPrompt.length);
 
     const result = await callOpenAI({ 
       imageUrl: null, 
@@ -48,11 +48,9 @@ module.exports = async function handler(req, res) {
   }
 };
 
-function buildChatGPTStylePrompt(contextData, userMessage) {
+function buildNovaContextPrompt(contextData, userMessage) {
   if (!contextData || contextData.trim() === '') {
-    return `You are a helpful AI assistant. Please respond to the user's message naturally and helpfully.
-
-User: ${userMessage}`;
+    return userMessage;
   }
 
   // Parse the context data to extract different sections
@@ -90,30 +88,24 @@ User: ${userMessage}`;
     }
   }
 
-  // Build structured prompt like ChatGPT
-  let prompt = `You are a helpful AI assistant with memory capabilities. You can remember information about users across conversations and provide personalized responses.`;
+  // Build context-aware message for Nova (system prompt already defines identity)
+  let contextualMessage = '';
   
   if (userProfile.trim()) {
-    prompt += `\n\nUser Information:\n${userProfile.trim()}`;
+    contextualMessage += `[User Profile: ${userProfile.trim()}]\n\n`;
   }
   
   if (relevantContext.trim()) {
-    prompt += `\n\nRelevant Previous Context:\n${relevantContext.trim()}`;
+    contextualMessage += `[Relevant Context: ${relevantContext.trim()}]\n\n`;
   }
   
   if (recentConversation.trim()) {
-    prompt += `\n\nRecent Conversation History:\n${recentConversation.trim()}`;
+    contextualMessage += `[Recent Conversation:\n${recentConversation.trim()}]\n\n`;
   }
   
-  prompt += `\n\nInstructions:
-- Use the user information and context to provide personalized responses
-- Reference previous conversations when relevant
-- Maintain conversation continuity and context awareness
-- Be helpful, accurate, and engaging
+  contextualMessage += userMessage;
 
-User: ${userMessage}`;
-
-  return prompt;
+  return contextualMessage;
 }
 
 

@@ -55,6 +55,29 @@ final class ResponseOverlay {
             panel?.makeKey()
         }
     }
+    
+    func showExpandedChat() {
+        DispatchQueue.main.async { [self] in
+            // Check if user is authenticated
+            if Auth.auth().currentUser == nil {
+                MainWindow.shared.show()
+                return
+            }
+            
+            if panel == nil { createPanel() }
+            if let hosting = panel?.contentViewController as? NSHostingController<ResponsePanel> {
+                // Create a new ResponsePanel with expanded state
+                let expandedPanel = ResponsePanel(text: "", isExpanded: true)
+                hosting.rootView = expandedPanel
+                hosting.view.needsDisplay = true
+            }
+            panel?.orderFrontRegardless()
+            panel?.center()
+            
+            // CRITICAL: Make panel key window for text input
+            panel?.makeKey()
+        }
+    }
 
     private func createPanel() {
         let style: NSWindow.StyleMask = [.borderless]
@@ -101,6 +124,11 @@ struct ResponsePanel: View {
     @State private var conversation: [ChatMessage] = []
     @State private var isExpanded: Bool = false
     @State private var animateGradient: Bool = false
+    
+    init(text: String = "", isExpanded: Bool = false) {
+        self.text = text
+        self._isExpanded = State(initialValue: isExpanded)
+    }
     
     var body: some View {
         ZStack {
@@ -295,8 +323,9 @@ struct CompactView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "text.bubble")
                         .font(.system(size: 12, weight: .medium))
-                    Text("Ask question")
-                        .font(.system(size: 12, weight: .medium))
+                    Text("Ask Question")
+                        .font(.system(size: 12, weight: .semibold))
+                        .minimumScaleFactor(0.8)
                 }
                 .foregroundColor(.white)
                 .padding(.horizontal, 16)
@@ -312,29 +341,49 @@ struct CompactView: View {
                 .shadow(color: Color.blue.opacity(0.3), radius: 4, x: 0, y: 2)
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(KeyEquivalent.return, modifiers: .command)
             .scaleEffect(pulseScale)
             .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulseScale)
             
-            // Hide Button
-            Button(action: onHide) {
-                HStack(spacing: 6) {
-                    Image(systemName: "eye.slash")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("Hide")
-                        .font(.system(size: 12, weight: .medium))
+            // Action Buttons (Hide and Settings)
+            HStack(spacing: 8) {
+                // Hide Button
+                Button(action: onHide) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "eye.slash")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Hide")
+                            .font(.system(size: 12, weight: .semibold))
+                            .minimumScaleFactor(0.8)
+                    }
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial)
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
                 }
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(.ultraThinMaterial)
-                .overlay(
-                    Capsule()
-                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                )
-                .clipShape(Capsule())
+                .buttonStyle(.plain)
+                
+                // Settings Button
+                Button(action: {
+                    MainWindow.shared.show()
+                }) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .padding(8)
+                        .background(.ultraThinMaterial)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
@@ -357,7 +406,7 @@ struct ExpandedChatView: View {
             // Header
             HStack {
                 HStack(spacing: 8) {
-                    Text("AsQue")
+                    Text("Nova")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.primary)
                 }

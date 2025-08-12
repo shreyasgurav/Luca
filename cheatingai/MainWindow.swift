@@ -33,7 +33,7 @@ class MainWindow {
                 defer: false
             )
             
-            self.window?.title = "CheatingAI"
+            self.window?.title = "Nova"
             self.window?.contentViewController = hostingController
             self.window?.isReleasedWhenClosed = false
             self.window?.center()

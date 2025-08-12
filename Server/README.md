@@ -1,4 +1,4 @@
-Serverless proxy for CheatingAI
+Serverless proxy for Nova
 
 Env vars:
 - OPENAI_API_KEY (required)

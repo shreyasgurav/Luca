@@ -9,7 +9,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menu: NSMenu!
     private var selectionController: SelectionController?
     private var globalHotKey: GlobalHotKey?
-    private var toggleOverlayHotKey: GlobalHotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize Firebase
@@ -29,7 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         setupStatusItem()
         setupGlobalHotKey()
-        setupToggleOverlayHotKey()
 
         // Pre-warm selection controller
         selectionController = SelectionController()
@@ -38,44 +36,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             MainWindow.shared.show()
         }
+        
+        // Automatically show floating modal (Ask Question panel) on app launch
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            ResponseOverlay.shared.show()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         globalHotKey?.unregister()
-        toggleOverlayHotKey?.unregister()
     }
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "rectangle.dashed", accessibilityDescription: "CheatingAI")
+            button.image = NSImage(systemSymbolName: "rectangle.dashed", accessibilityDescription: "Nova")
             button.imagePosition = .imageOnly
             button.target = self
             button.action = #selector(toggleSelection)
         }
 
         menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Open AI Assistant\t⌘\\", action: #selector(toggleSelection), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Open Nova Assistant\t⌘\\", action: #selector(toggleSelection), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Open Main Window", action: #selector(showSignIn), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit CheatingAI", action: #selector(quit), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit Nova", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
     }
 
     private func setupGlobalHotKey() {
         globalHotKey = GlobalHotKey(keyCode: UInt32(kVK_ANSI_Backslash), modifiers: [.command]) { [weak self] in
-            self?.toggleSelection()
+            self?.toggleResponseOverlay()
         }
         globalHotKey?.register()
     }
     
     private func setupToggleOverlayHotKey() {
-        toggleOverlayHotKey = GlobalHotKey(keyCode: UInt32(kVK_ANSI_Slash), modifiers: [.command]) { [weak self] in
-            self?.toggleResponseOverlay()
-        }
-        toggleOverlayHotKey?.register()
+        // This is now redundant since globalHotKey handles Command+\
+        // Keeping for backward compatibility but not registering
     }
+    
+    // Command+Return hotkey removed as requested
 
     @objc private func toggleSelection() {
         // Directly show the response overlay
@@ -83,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func toggleResponseOverlay() {
+        // Toggle the floating modal visibility
         if let panel = ResponseOverlay.shared.panel {
             if panel.isVisible {
                 panel.orderOut(nil)
@@ -90,8 +93,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 panel.orderFrontRegardless()
                 panel.center()
             }
+        } else {
+            // If panel doesn't exist, create and show it
+            ResponseOverlay.shared.show()
         }
     }
+    
+
 
     @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor?, replyEvent: NSAppleEventDescriptor?) {
         if let urlString = event?.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,

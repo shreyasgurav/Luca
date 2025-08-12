@@ -26,16 +26,15 @@ module.exports = async function handler(req, res) {
       imageUrl = `data:${contentType};base64,${base64}`;
     }
 
-    const promptContext = fields.promptContext || `Analyze this screenshot and help the user. If this contains:
-- Multiple choice questions (MCQs): Solve them step by step and provide the correct answer with explanation
-- Math problems: Show step-by-step solution and final answer
-- Code: Explain what it does, find bugs, or suggest improvements
-- Text/Documents: Summarize key points or answer questions about the content
-- UI/Interface: Describe functionality and help with navigation
-- Diagrams/Charts: Explain the data and insights
-- General images: Describe what you see and provide relevant analysis
+    const promptContext = fields.promptContext || `Analyze this screenshot and help the user with whatever they need. This could be:
+- Academic: Multiple choice questions, math problems, research, study materials
+- Professional: Code debugging, design feedback, data analysis, presentations  
+- Creative: Art critique, writing assistance, brainstorming, project planning
+- Technical: UI/UX analysis, troubleshooting, software guidance, tutorials
+- Personal: Recipe analysis, shopping lists, travel planning, organization
+- Any other task: Describe what you see and provide relevant, actionable assistance
 
-Be helpful, accurate, and provide actionable information. Focus on solving problems rather than just describing what you see.`;
+Be helpful, accurate, and versatile. Focus on understanding the user's goal and providing practical solutions or insights.`;
     const includeOCR = fields.includeOCR === 'true';
     const sessionId = fields.sessionId || null;
 

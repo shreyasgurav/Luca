@@ -278,7 +278,7 @@ class MemoryManagementWindow {
             defer: false
         )
         
-        window?.title = "Memory Manager - CheatingAI"
+        window?.title = "Memory Manager - Nova"
         window?.contentViewController = hostingController
         window?.isReleasedWhenClosed = false
         window?.center()

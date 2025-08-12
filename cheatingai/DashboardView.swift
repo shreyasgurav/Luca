@@ -668,7 +668,7 @@ class DashboardWindow {
             defer: false
         )
         
-        window?.title = "CheatingAI Dashboard"
+        window?.title = "Nova Dashboard"
         window?.contentViewController = hostingController
         window?.isReleasedWhenClosed = false
         window?.center()

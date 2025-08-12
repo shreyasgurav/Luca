@@ -18,9 +18,14 @@ struct SignInView: View {
                         )
                     )
                 
-                Text("CheatingAI")
-                    .font(.title)
+                Text("Nova")
+                    .font(.largeTitle)
                     .fontWeight(.bold)
+                
+                Text("Your Intelligent AI Assistant")
+                    .font(.title3)
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
                 
                 Text("Sign in to continue")
                     .font(.subheadline)
