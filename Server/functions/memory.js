@@ -59,6 +59,13 @@ MEMORY TYPES:
 CONTENT TO ANALYZE:
 ${content}
 
+EXAMPLES OF GOOD EXTRACTIONS:
+Input: "I prefer dark mode and I'm studying computer science at MIT"
+Output: [{"kind":"preference","text":"User prefers dark mode","summary":"Dark mode preference","importance":0.7,"tags":["dark","mode","ui"]},{"kind":"professional","text":"User is studying computer science at MIT","summary":"CS student at MIT","importance":0.9,"tags":["computer","science","MIT","student"]}]
+
+Input: "My name is Sarah and I love coffee"
+Output: [{"kind":"personal","text":"User's name is Sarah","summary":"Name: Sarah","importance":0.9,"tags":["name","Sarah"]},{"kind":"preference","text":"User loves coffee","summary":"Coffee lover","importance":0.6,"tags":["coffee","love","drink"]}]
+
 REQUIRED OUTPUT FORMAT - Return ONLY valid JSON array:
 [
   {

@@ -154,13 +154,21 @@ class VectorMemoryManager: ObservableObject {
     // MARK: - Enhanced Memory Storage with Embeddings
     
     func storeMemoryWithEmbedding(content: String, type: MemoryType, source: MemorySource, importance: Double = 0.7) async {
-        guard let userId = currentUserId else { return }
+        guard let userId = currentUserId else { 
+            print("❌ storeMemoryWithEmbedding: No current user ID available")
+            return 
+        }
+        
+        print("🔄 storeMemoryWithEmbedding: Starting storage for user ID: \(userId)")
+        print("   - Content: \(content.prefix(100))...")
+        print("   - Type: \(type.rawValue)")
         
         isProcessingMemory = true
         defer { isProcessingMemory = false }
         
         // Check for similar existing memories using vector similarity
-        if let similarMemory = await findSimilarMemory(userId: userId, content: content, threshold: 0.9) {
+        // Only update if content is 95%+ similar (e.g., exact duplicates or near-duplicates)
+        if let similarMemory = await findSimilarMemory(userId: userId, content: content, threshold: 0.95) {
             // Update existing memory instead of creating duplicate
             await updateMemoryAccess(memoryId: similarMemory.id)
             print("📝 Updated similar existing memory")
@@ -206,10 +214,18 @@ class VectorMemoryManager: ObservableObject {
     
     private func storeVectorMemory(_ memory: VectorMemory) async {
         do {
+            print("💾 Storing memory to Firebase:")
+            print("   - Collection: vector_memories")
+            print("   - Document ID: \(memory.id)")
+            print("   - User ID: \(memory.userId)")
+            print("   - Summary: \(memory.summary)")
+            print("   - Type: \(memory.type.rawValue)")
+            
             try await db.collection("vector_memories").document(memory.id).setData(from: memory)
-            print("🧠 Stored vector memory: \(memory.summary)")
+            print("✅ Successfully stored vector memory: \(memory.summary) (ID: \(memory.id))")
         } catch {
             print("❌ Failed to store vector memory: \(error)")
+            print("❌ Error details: \(error.localizedDescription)")
         }
     }
     
@@ -265,13 +281,15 @@ class VectorMemoryManager: ObservableObject {
     
     // MARK: - Semantic Memory Retrieval
     
-    func getRelevantMemoriesWithContext(for query: String) async -> String {
+    func getRelevantMemoriesWithContext(for query: String, sessionId: String? = nil) async -> String {
         guard let userId = currentUserId else { return "" }
+        
+        let actualSessionId = sessionId ?? getCurrentSessionId()
         
         // Generate embedding for the query
         guard let queryEmbedding = await generateEmbedding(for: query) else {
             print("❌ Failed to generate query embedding")
-            return await getFallbackContext(query: query)
+            return await getFallbackContext(query: query, sessionId: actualSessionId)
         }
         
         // Retrieve semantically similar memories
@@ -281,11 +299,16 @@ class VectorMemoryManager: ObservableObject {
             query: query
         )
         
-        // Get recent conversation context
-        let recentContext = await getRecentConversationContext()
+        // Get session-specific conversation context
+        let sessionContext = await getSessionConversationContext(sessionId: actualSessionId)
         
-        // Build comprehensive context
-        return buildContextFromMemories(memories: relevantMemories, recentContext: recentContext, query: query)
+        // Build comprehensive context with both long-term memories and session context
+        return buildEnhancedContextFromMemories(
+            memories: relevantMemories, 
+            sessionContext: sessionContext, 
+            query: query,
+            sessionId: actualSessionId
+        )
     }
     
     private func searchSimilarMemories(userId: String, queryEmbedding: [Double], query: String) async -> [MemorySearchResult] {
@@ -302,17 +325,34 @@ class VectorMemoryManager: ObservableObject {
             for document in snapshot.documents {
                 guard let memory = try? document.data(as: VectorMemory.self) else { continue }
                 
-                // Calculate semantic similarity using cosine similarity
+                // Enhanced relevance scoring algorithm (ChatGPT-inspired)
                 let semantic = cosineSimilarity(queryEmbedding, memory.embedding)
+                
+                // Importance scoring (30% weight)
                 let importanceBoost = memory.importance * 0.3
+                
+                // Recency scoring with decay curve (15% weight)
                 let daysSinceCreated = Date().timeIntervalSince(memory.createdAt) / (24 * 60 * 60)
-                let recencyBoost = max(0, 0.2 - (daysSinceCreated * 0.01))
-                let accessBoost = min(0.1, Double(memory.accessCount) * 0.01)
-                let decayBoost = memory.importance * memory.decayFactor * 0.1
-                let baseScore = semantic + importanceBoost + recencyBoost + accessBoost + decayBoost
+                let recencyBoost = max(0, 0.15 * exp(-daysSinceCreated / 30.0)) // 30-day decay
+                
+                // Access frequency scoring (10% weight)
+                let accessBoost = min(0.1, Double(memory.accessCount) * 0.02)
+                
+                // Memory decay factor (5% weight)
+                let decayBoost = memory.importance * memory.decayFactor * 0.05
+                
+                // Keyword exact match bonus (20% potential boost)
                 let keywordMatch = memory.keywords.contains { query.lowercased().contains($0.lowercased()) }
-                let keywordBoost = keywordMatch ? 0.15 : 0.0
-                let finalScore = baseScore + keywordBoost
+                let exactKeywordBoost = keywordMatch ? 0.2 : 0.0
+                
+                // Fuzzy keyword matching (10% potential boost)
+                let fuzzyKeywordBoost = calculateFuzzyKeywordMatch(query: query, keywords: memory.keywords) * 0.1
+                
+                // Type relevance boost (certain types more relevant for certain queries)
+                let typeBoost = calculateTypeRelevance(memoryType: memory.type, query: query) * 0.1
+                
+                // Final weighted score
+                let finalScore = semantic + importanceBoost + recencyBoost + accessBoost + decayBoost + exactKeywordBoost + fuzzyKeywordBoost + typeBoost
                 
                 // Only include memories above similarity threshold
                 if semantic > 0.3 || keywordMatch {
@@ -352,7 +392,155 @@ class VectorMemoryManager: ObservableObject {
         }
     }
     
-    // MARK: - Context Building
+    // MARK: - Session Context Management
+    
+    private func getSessionConversationContext(sessionId: String) async -> String {
+        let recentMessages = await getRecentMessages(sessionId: sessionId, limit: 10)
+        
+        if recentMessages.isEmpty {
+            return ""
+        }
+        
+        var contextLines: [String] = []
+        for message in recentMessages.reversed() { // Show oldest first
+            let role = message.role == "user" ? "User" : "Assistant"
+            let content = String(message.content.prefix(200)) // Limit message length
+            contextLines.append("\(role): \(content)")
+        }
+        
+        return contextLines.joined(separator: "\n")
+    }
+    
+    private func buildEnhancedContextFromMemories(
+        memories: [MemorySearchResult], 
+        sessionContext: String, 
+        query: String,
+        sessionId: String
+    ) -> String {
+        var context = ""
+        var usedTokens = 0
+        let maxTokens = maxContextTokens
+        
+        // Token allocation strategy (based on ChatGPT approach):
+        // 25% for user profile, 35% for relevant memories, 40% for recent conversation
+        let profileTokenLimit = maxTokens / 4
+        let memoryTokenLimit = (maxTokens * 35) / 100
+        let conversationTokenLimit = (maxTokens * 40) / 100
+        
+        // 1. Build comprehensive user profile (ChatGPT style)
+        let userProfile = buildUserProfile(from: memories, tokenLimit: profileTokenLimit)
+        if !userProfile.isEmpty {
+            context += userProfile
+            usedTokens += userProfile.count / 4
+        }
+        
+        // 2. Add most relevant memories with better scoring
+        let relevantMemories = selectRelevantMemories(memories: memories, query: query, tokenLimit: memoryTokenLimit)
+        if !relevantMemories.isEmpty {
+            context += "Relevant Context:\n\(relevantMemories)\n"
+            usedTokens += relevantMemories.count / 4
+        }
+        
+        // 3. Add optimized conversation context
+        let optimizedConversation = optimizeConversationContext(sessionContext, tokenLimit: conversationTokenLimit)
+        if !optimizedConversation.isEmpty {
+            context += "Recent Conversation:\n\(optimizedConversation)\n"
+            usedTokens += optimizedConversation.count / 4
+        }
+        
+        print("🧠 Built enhanced context: \(usedTokens) tokens, \(memories.count) memories, session: \(sessionId)")
+        return context
+    }
+    
+    private func buildUserProfile(from memories: [MemorySearchResult], tokenLimit: Int) -> String {
+        let personalMemories = memories.filter { 
+            $0.memory.type == .personal || $0.memory.type == .preference 
+        }.sorted { $0.memory.importance > $1.memory.importance }
+        
+        if personalMemories.isEmpty { return "" }
+        
+        var profile = "User Profile:\n"
+        var usedTokens = "User Profile:\n".count / 4
+        
+        // Group by type for better organization
+        let personal = personalMemories.filter { $0.memory.type == .personal }
+        let preferences = personalMemories.filter { $0.memory.type == .preference }
+        
+        // Add personal info first
+        for memory in personal.prefix(3) {
+            let memoryText = "- \(memory.memory.summary)\n"
+            let tokens = memoryText.count / 4
+            if usedTokens + tokens <= tokenLimit {
+                profile += memoryText
+                usedTokens += tokens
+            } else { break }
+        }
+        
+        // Add preferences
+        if usedTokens < tokenLimit {
+            for memory in preferences.prefix(3) {
+                let memoryText = "- \(memory.memory.summary)\n"
+                let tokens = memoryText.count / 4
+                if usedTokens + tokens <= tokenLimit {
+                    profile += memoryText
+                    usedTokens += tokens
+                } else { break }
+            }
+        }
+        
+        return profile + "\n"
+    }
+    
+    private func selectRelevantMemories(memories: [MemorySearchResult], query: String, tokenLimit: Int) -> String {
+        let nonPersonalMemories = memories.filter { 
+            $0.memory.type != .personal && $0.memory.type != .preference 
+        }.sorted { $0.relevanceScore > $1.relevanceScore }
+        
+        if nonPersonalMemories.isEmpty { return "" }
+        
+        var result = ""
+        var usedTokens = 0
+        
+        for memory in nonPersonalMemories {
+            let memoryText = "- \(memory.memory.summary) (relevance: \(String(format: "%.2f", memory.relevanceScore)))\n"
+            let tokens = memoryText.count / 4
+            
+            if usedTokens + tokens <= tokenLimit {
+                result += memoryText
+                usedTokens += tokens
+            } else { break }
+        }
+        
+        return result
+    }
+    
+    private func optimizeConversationContext(_ sessionContext: String, tokenLimit: Int) -> String {
+        if sessionContext.isEmpty { return "" }
+        
+        let contextTokens = sessionContext.count / 4
+        
+        if contextTokens <= tokenLimit {
+            return sessionContext
+        }
+        
+        // Smart truncation: Keep more recent messages
+        let lines = sessionContext.components(separatedBy: "\n")
+        var optimizedLines: [String] = []
+        var usedTokens = 0
+        
+        // Start from the end (most recent) and work backwards
+        for line in lines.reversed() {
+            let lineTokens = line.count / 4
+            if usedTokens + lineTokens <= tokenLimit {
+                optimizedLines.insert(line, at: 0)
+                usedTokens += lineTokens
+            } else { break }
+        }
+        
+        return optimizedLines.joined(separator: "\n")
+    }
+    
+    // MARK: - Context Building (Legacy)
     
     private func buildContextFromMemories(memories: [MemorySearchResult], recentContext: String, query: String) -> String {
         var context = ""
@@ -415,17 +603,24 @@ class VectorMemoryManager: ObservableObject {
         return dotProduct / (magnitudeA * magnitudeB)
     }
     
-    private func findSimilarMemory(userId: String, content: String, threshold: Double = 0.82) async -> VectorMemory? {
+    private func findSimilarMemory(userId: String, content: String, threshold: Double = 0.95) async -> VectorMemory? {
         guard let embedding = await generateEmbedding(for: content) else { return nil }
         let results = await searchSimilarMemories(userId: userId, queryEmbedding: embedding, query: content)
 
-        // prefer results with high final score (semantic + importance + keyword)
-        if let best = results.max(by: { $0.relevanceScore < $1.relevanceScore }) {
+        // Only consider memories with very high semantic similarity for updating
+        // This ensures we only update truly similar content, not just related content
+        if let best = results.max(by: { $0.semanticSimilarity < $1.semanticSimilarity }) {
             // debug log
             print("🔎 Best candidate similarity: \(String(format: "%.3f", best.semanticSimilarity)), finalScore: \(String(format: "%.3f", best.relevanceScore))")
-            // accept if final score is reasonably high OR semantic similarity >= threshold
-            if best.relevanceScore >= 0.60 || best.semanticSimilarity >= threshold {
+            print("🔍 Similarity threshold: \(threshold) - Will update: \(best.semanticSimilarity >= threshold)")
+            
+            // Only update if semantic similarity is very high (95%+ similar)
+            // This prevents different facts about the same person from being merged
+            if best.semanticSimilarity >= threshold {
+                print("✅ Found truly similar memory - updating existing")
                 return best.memory
+            } else {
+                print("📝 Content is different enough - creating new memory")
             }
         }
         return nil
@@ -506,7 +701,7 @@ class VectorMemoryManager: ObservableObject {
         }
     }
     
-    private func getFallbackContext(query: String) async -> String {
+    private func getFallbackContext(query: String, sessionId: String? = nil) async -> String {
         // Fallback to keyword-based search if embeddings fail
         guard let userId = currentUserId else { return "" }
         
@@ -637,7 +832,12 @@ class VectorMemoryManager: ObservableObject {
     // MARK: - Additional Methods for UI Integration
     
     func getAllVectorMemories() async -> [VectorMemory] {
-        guard let userId = currentUserId else { return [] }
+        guard let userId = currentUserId else { 
+            print("❌ VectorMemoryManager: No current user ID available")
+            return [] 
+        }
+        
+        print("🔍 VectorMemoryManager: Fetching memories for user ID: \(userId)")
         
         do {
             let query = db.collection("vector_memories")
@@ -645,9 +845,21 @@ class VectorMemoryManager: ObservableObject {
                 .order(by: "createdAt", descending: true)
             
             let snapshot = try await query.getDocuments()
-            return snapshot.documents.compactMap { doc in
-                try? doc.data(as: VectorMemory.self)
+            print("🔍 VectorMemoryManager: Found \(snapshot.documents.count) documents in query")
+            
+            let memories = snapshot.documents.compactMap { doc in
+                do {
+                    let memory = try doc.data(as: VectorMemory.self)
+                    print("✅ Successfully decoded memory: \(memory.id) - \(memory.summary)")
+                    return memory
+                } catch {
+                    print("❌ Failed to decode memory from document \(doc.documentID): \(error)")
+                    return nil
+                }
             }
+            
+            print("🔍 VectorMemoryManager: Returning \(memories.count) memories")
+            return memories
         } catch {
             print("❌ Error fetching all vector memories: \(error)")
             return []
@@ -671,6 +883,44 @@ class VectorMemoryManager: ObservableObject {
         }
     }
     
+    // MARK: - Testing & Debug Functions
+    
+    func createTestMemory() async {
+        print("🧪 Creating test memory...")
+        await storeMemoryWithEmbedding(
+            content: "Test memory: User is testing the memory system",
+            type: .personal,
+            source: .explicit,
+            importance: 0.8
+        )
+        print("🧪 Test memory creation completed")
+    }
+    
+    func clearAllMemories() async {
+        guard let userId = currentUserId else { 
+            print("❌ No user ID available for clearing memories")
+            return 
+        }
+        
+        print("🗑️ Clearing all memories for user: \(userId)")
+        
+        do {
+            let query = db.collection("vector_memories")
+                .whereField("userId", isEqualTo: userId)
+            
+            let snapshot = try await query.getDocuments()
+            
+            for document in snapshot.documents {
+                try await document.reference.delete()
+                print("🗑️ Deleted memory: \(document.documentID)")
+            }
+            
+            print("✅ Cleared \(snapshot.documents.count) memories")
+        } catch {
+            print("❌ Error clearing memories: \(error)")
+        }
+    }
+    
     func deleteVectorMemory(memoryId: String) async {
         do {
             try await db.collection("vector_memories").document(memoryId).delete()
@@ -680,25 +930,7 @@ class VectorMemoryManager: ObservableObject {
         }
     }
     
-    func clearAllMemories() async {
-        guard let userId = currentUserId else { return }
-        
-        do {
-            let query = db.collection("vector_memories")
-                .whereField("userId", isEqualTo: userId)
-                .whereField("isActive", isEqualTo: true)
-            
-            let snapshot = try await query.getDocuments()
-            
-            for document in snapshot.documents {
-                try await document.reference.delete()
-            }
-            
-            print("🗑️ Cleared all vector memories for user")
-        } catch {
-            print("❌ Error clearing all memories: \(error)")
-        }
-    }
+
     
     func searchMemoriesWithResults(query: String) async -> [MemorySearchResult] {
         guard let userId = currentUserId else { return [] }
@@ -876,6 +1108,121 @@ class VectorMemoryManager: ObservableObject {
             print("❌ Error fetching session summary: \(error)")
             return nil
         }
+    }
+    
+    // MARK: - Enhanced Relevance Scoring
+    
+    private func calculateFuzzyKeywordMatch(query: String, keywords: [String]) -> Double {
+        let queryWords = query.lowercased().components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty && $0.count > 2 }
+        
+        var matchScore = 0.0
+        let totalWords = Double(queryWords.count)
+        
+        if totalWords == 0 { return 0.0 }
+        
+        for queryWord in queryWords {
+            for keyword in keywords {
+                let similarity = stringSimilarity(queryWord, keyword.lowercased())
+                if similarity > 0.7 { // 70% similarity threshold
+                    matchScore += similarity
+                    break // Count each query word only once
+                }
+            }
+        }
+        
+        return min(1.0, matchScore / totalWords)
+    }
+    
+    private func calculateTypeRelevance(memoryType: MemoryType, query: String) -> Double {
+        let lowercaseQuery = query.lowercased()
+        
+        switch memoryType {
+        case .personal:
+            // High relevance for identity/personal questions
+            if lowercaseQuery.contains("my name") || lowercaseQuery.contains("i am") || 
+               lowercaseQuery.contains("who am i") || lowercaseQuery.contains("about me") {
+                return 1.0
+            }
+            return 0.3
+            
+        case .preference:
+            // High relevance for preference/opinion questions
+            if lowercaseQuery.contains("like") || lowercaseQuery.contains("prefer") || 
+               lowercaseQuery.contains("favorite") || lowercaseQuery.contains("love") ||
+               lowercaseQuery.contains("hate") || lowercaseQuery.contains("dislike") {
+                return 1.0
+            }
+            return 0.4
+            
+        case .professional:
+            // High relevance for work/career questions
+            if lowercaseQuery.contains("work") || lowercaseQuery.contains("job") || 
+               lowercaseQuery.contains("career") || lowercaseQuery.contains("study") ||
+               lowercaseQuery.contains("university") || lowercaseQuery.contains("college") {
+                return 1.0
+            }
+            return 0.3
+            
+        case .goal:
+            // High relevance for future/planning questions
+            if lowercaseQuery.contains("plan") || lowercaseQuery.contains("goal") || 
+               lowercaseQuery.contains("want to") || lowercaseQuery.contains("future") {
+                return 1.0
+            }
+            return 0.2
+            
+        case .instruction:
+            // High relevance for how-to questions
+            if lowercaseQuery.contains("how") || lowercaseQuery.contains("remember") ||
+               lowercaseQuery.contains("always") || lowercaseQuery.contains("never") {
+                return 1.0
+            }
+            return 0.4
+            
+        case .knowledge, .relationship, .event:
+            // Standard relevance for general information
+            return 0.5
+        }
+    }
+    
+    private func stringSimilarity(_ str1: String, _ str2: String) -> Double {
+        if str1 == str2 { return 1.0 }
+        if str1.isEmpty || str2.isEmpty { return 0.0 }
+        
+        // Simple Levenshtein distance-based similarity
+        let maxLen = max(str1.count, str2.count)
+        let distance = levenshteinDistance(str1, str2)
+        return max(0.0, 1.0 - Double(distance) / Double(maxLen))
+    }
+    
+    private func levenshteinDistance(_ str1: String, _ str2: String) -> Int {
+        let m = str1.count
+        let n = str2.count
+        
+        if m == 0 { return n }
+        if n == 0 { return m }
+        
+        var matrix = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)
+        
+        for i in 0...m { matrix[i][0] = i }
+        for j in 0...n { matrix[0][j] = j }
+        
+        let str1Array = Array(str1)
+        let str2Array = Array(str2)
+        
+        for i in 1...m {
+            for j in 1...n {
+                let cost = str1Array[i-1] == str2Array[j-1] ? 0 : 1
+                matrix[i][j] = min(
+                    matrix[i-1][j] + 1,      // deletion
+                    matrix[i][j-1] + 1,      // insertion
+                    matrix[i-1][j-1] + cost  // substitution
+                )
+            }
+        }
+        
+        return matrix[m][n]
     }
     
     // MARK: - Memory Decay System

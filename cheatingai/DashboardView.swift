@@ -261,6 +261,14 @@ struct DashboardView: View {
             
             // Actions
             HStack {
+                Button("Test Memory") {
+                    Task {
+                        await memoryManager.createTestMemory()
+                        await loadMemories()
+                    }
+                }
+                .foregroundColor(.blue)
+                
                 Button("Clear All") {
                     Task {
                         await clearAllMemories()
@@ -406,7 +414,34 @@ struct DashboardView: View {
     
     private func loadMemories() async {
         isLoadingMemories = true
+        print("📱 Dashboard: Loading memories...")
+        
+        // Check authentication
+        guard authManager.isAuthenticated else {
+            print("❌ Dashboard: User not authenticated")
+            isLoadingMemories = false
+            return
+        }
+        
+        // Debug: Print current user ID
+        if let currentUser = authManager.currentUser {
+            print("📱 Dashboard: Current user ID: \(currentUser.uid)")
+            print("📱 Dashboard: User email: \(currentUser.email ?? "No email")")
+        } else {
+            print("❌ Dashboard: No current user found despite being authenticated")
+        }
+        
         memories = await memoryManager.getAllVectorMemories()
+        print("📱 Dashboard: Loaded \(memories.count) memories")
+        
+        // Debug: Call the debug function to inspect what's actually in Firebase
+        await memoryManager.debugListMemories()
+        
+        // Add some test memories if none exist (for testing)
+        if memories.isEmpty {
+            print("📱 Dashboard: No memories found, this is expected for new users")
+        }
+        
         isLoadingMemories = false
     }
     
@@ -417,7 +452,7 @@ struct DashboardView: View {
     
     private func clearAllMemories() async {
         await memoryManager.clearAllMemories()
-        memories.removeAll()
+        await loadMemories() // Reload to update UI
     }
     
     private func mostCommonMemoryType() -> String {

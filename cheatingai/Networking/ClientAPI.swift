@@ -83,7 +83,7 @@ final class ClientAPI {
                 _ = VectorMemoryManager.shared.getCurrentSessionId()
             }
             
-            let context = await VectorMemoryManager.shared.getRelevantMemoriesWithContext(for: message)
+            let context = await VectorMemoryManager.shared.getRelevantMemoriesWithContext(for: message, sessionId: sessionId)
             
             var request = URLRequest(url: baseURL.appendingPathComponent("/api/chat"))
             request.httpMethod = "POST"
@@ -156,9 +156,17 @@ final class ClientAPI {
                     for fact in extractedFacts {
                         guard let text = fact["text"] as? String,
                               let kindString = fact["kind"] as? String,
-                              let importance = fact["importance"] as? Double else { continue }
+                              let importance = fact["importance"] as? Double else { 
+                            print("⚠️ Skipping malformed fact: \(fact)")
+                            continue 
+                        }
                         
                         let memoryType = mapStringToMemoryType(kindString)
+                        
+                        print("🔄 ClientAPI: About to store memory:")
+                        print("   - Text: \(text)")
+                        print("   - Type: \(memoryType.rawValue)")
+                        print("   - Importance: \(importance)")
                         
                         await VectorMemoryManager.shared.storeMemoryWithEmbedding(
                             content: text,
