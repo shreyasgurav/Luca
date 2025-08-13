@@ -500,6 +500,17 @@ struct DashboardView: View {
             
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
+                    Text("Gmail Integration")
+                        .font(.headline)
+                        .fontWeight(.medium)
+
+                    GmailIntegrationView()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Memory Statistics")
                         .font(.headline)
                         .fontWeight(.medium)

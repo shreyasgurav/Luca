@@ -303,6 +303,55 @@ struct ResponsePanel: View {
     }
     
     private func sendTextOnlyMessage(_ messageText: String) {
+        // If message appears to be about email, try Gmail route first
+        if isEmailIntent(messageText) {
+            ClientAPI.shared.gmailStatus { statusResult in
+                switch statusResult {
+                case .success(let status) where status.connected:
+                    ClientAPI.shared.gmailQuery(question: messageText, maxEmails: 10) { queryResult in
+                        DispatchQueue.main.async {
+                            self.isLoading = false
+                            switch queryResult {
+                            case .success(let resp):
+                                self.conversation.append(ChatMessage(content: resp.answer, isUser: false))
+                            case .failure:
+                                // Fallback to normal chat if Gmail query fails
+                                self.fallbackChat(messageText)
+                            }
+                        }
+                    }
+                default:
+                    // Not connected → normal chat
+                    self.fallbackChat(messageText)
+                }
+            }
+            return
+        }
+
+        ClientAPI.shared.chat(message: messageText, sessionId: SessionManager.shared.currentSessionId) { result in
+            DispatchQueue.main.async {
+                self.isLoading = false
+                switch result {
+                case .success(let reply):
+                    self.conversation.append(ChatMessage(content: reply, isUser: false))
+                case .failure(let error):
+                    self.conversation.append(ChatMessage(content: "❌ Error: \(error.localizedDescription)", isUser: false))
+                }
+            }
+        }
+    }
+
+    private func isEmailIntent(_ text: String) -> Bool {
+        let t = text.lowercased()
+        let indicators = [
+            "email", "gmail", "inbox", "mail", "message",
+            "check my", "in my email", "from my email", "what did", "what is the date",
+            "invite", "calendar", "hackathon", "meeting", "ticket",
+        ]
+        return indicators.contains { t.contains($0) }
+    }
+
+    private func fallbackChat(_ messageText: String) {
         ClientAPI.shared.chat(message: messageText, sessionId: SessionManager.shared.currentSessionId) { result in
             DispatchQueue.main.async {
                 self.isLoading = false

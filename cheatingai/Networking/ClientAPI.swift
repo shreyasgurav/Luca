@@ -5,6 +5,33 @@ struct AnalyzeResponse: Decodable {
     let assistant_text: String
 }
 
+// MARK: - Gmail Models
+struct GmailStatusResponse: Decodable {
+    let connected: Bool
+    let email: String?
+}
+
+struct GmailAuthURLResponse: Decodable {
+    let auth_url: String
+}
+
+struct GmailEmailsResponse: Decodable {
+    struct Email: Decodable {
+        let id: String
+        let subject: String?
+        let from: String?
+        let date: String?
+        let snippet: String?
+        let text: String?
+    }
+    let emails: [Email]
+}
+
+struct GmailQueryResponse: Decodable {
+    let answer: String
+    let checked_emails: Int
+}
+
 final class ClientAPI {
     static let shared = ClientAPI()
     private init() {}
@@ -69,6 +96,73 @@ final class ClientAPI {
             } catch {
                 completion(.failure(error))
             }
+        }.resume()
+    }
+
+    // MARK: - Gmail API
+    func gmailStatus(completion: @escaping (Result<GmailStatusResponse, Error>) -> Void) {
+        let url = baseURL.appendingPathComponent("/api/gmail/status")
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            if let error { completion(.failure(error)); return }
+            guard let data else { completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"]))); return }
+            do { completion(.success(try JSONDecoder().decode(GmailStatusResponse.self, from: data))) }
+            catch { completion(.failure(error)) }
+        }.resume()
+    }
+
+    func gmailAuthURL(emailHint: String?, completion: @escaping (Result<URL, Error>) -> Void) {
+        var comps = URLComponents(url: baseURL.appendingPathComponent("/api/gmail/auth"), resolvingAgainstBaseURL: false)!
+        if let emailHint, !emailHint.isEmpty { comps.queryItems = [URLQueryItem(name: "email", value: emailHint)] }
+        let url = comps.url!
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            if let error { completion(.failure(error)); return }
+            guard let data else { completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"]))); return }
+            do {
+                let decoded = try JSONDecoder().decode(GmailAuthURLResponse.self, from: data)
+                if let u = URL(string: decoded.auth_url) { completion(.success(u)) } else {
+                    completion(.failure(NSError(domain: "ClientAPI", code: -2, userInfo: [NSLocalizedDescriptionKey: "Bad auth URL"])))}
+            } catch { completion(.failure(error)) }
+        }.resume()
+    }
+
+    func gmailListEmails(max: Int = 5, completion: @escaping (Result<GmailEmailsResponse, Error>) -> Void) {
+        var comps = URLComponents(url: baseURL.appendingPathComponent("/api/gmail/emails"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "max", value: String(max))]
+        let url = comps.url!
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            if let error { completion(.failure(error)); return }
+            guard let data else { completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"]))); return }
+            do { completion(.success(try JSONDecoder().decode(GmailEmailsResponse.self, from: data))) }
+            catch { completion(.failure(error)) }
+        }.resume()
+    }
+
+    func gmailQuery(question: String, maxEmails: Int = 10, completion: @escaping (Result<GmailQueryResponse, Error>) -> Void) {
+        let url = baseURL.appendingPathComponent("/api/gmail/query")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["question": question, "maxEmails": maxEmails]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            if let error { completion(.failure(error)); return }
+            guard let data else { completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"]))); return }
+            do { completion(.success(try JSONDecoder().decode(GmailQueryResponse.self, from: data))) }
+            catch { completion(.failure(error)) }
+        }.resume()
+    }
+
+    func gmailDisconnect(completion: @escaping (Result<Bool, Error>) -> Void) {
+        let url = baseURL.appendingPathComponent("/api/gmail/disconnect")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            if let error { completion(.failure(error)); return }
+            guard let data else { completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"]))); return }
+            do {
+                let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                completion(.success(obj?["success"] as? Bool == true))
+            } catch { completion(.failure(error)) }
         }.resume()
     }
 
