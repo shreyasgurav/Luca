@@ -128,10 +128,6 @@ cd Server && npm start
 - Evaluation harness for retrieval and prompt changes
 - Built-in rate limiting and auth middleware
 
----
-
-## License
-MIT
 
 ---
 
