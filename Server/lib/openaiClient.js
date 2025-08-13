@@ -1,7 +1,13 @@
 const fetch = require('node-fetch');
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_BASE = process.env.OPENAI_BASE || 'https://api.openai.com/v1';
+// Read environment variables dynamically instead of at module load time
+function getOpenAIConfig() {
+  return {
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_BASE: process.env.OPENAI_BASE || 'https://api.openai.com/v1',
+    OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini'
+  };
+}
 
 // Nova's system prompt - defines the AI's identity and personality
 const NOVA_SYSTEM_PROMPT = `You are Nova, an advanced AI assistant with powerful screen capture and analysis capabilities. You can help with absolutely anything - from work and studies to personal projects, creative tasks, and everyday problems.
@@ -34,8 +40,7 @@ const NOVA_SYSTEM_PROMPT = `You are Nova, an advanced AI assistant with powerful
 You are here to make any task easier, faster, and more effective. Help users accomplish whatever they're working on!`;
 
 async function callOpenAI({ imageUrl, promptContext, includeOCR, sessionId }) {
-  // Use GPT-4o-mini for best cost/performance ratio
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const { OPENAI_API_KEY, OPENAI_BASE, OPENAI_MODEL } = getOpenAIConfig();
   
   // Build messages array with system prompt
   const messages = [
@@ -58,7 +63,7 @@ async function callOpenAI({ imageUrl, promptContext, includeOCR, sessionId }) {
   
   // GPT-4o-mini uses standard Chat Completions format with vision support
   const payload = {
-    model: model,
+    model: OPENAI_MODEL,
     messages: messages,
     max_completion_tokens: 4000,
     temperature: 0.7  // Add some personality while keeping responses focused

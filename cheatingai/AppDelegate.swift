@@ -32,15 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Pre-warm selection controller
         selectionController = SelectionController()
         
-        // Automatically show main dashboard window on app launch
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            MainWindow.shared.show()
-        }
-        
-        // Automatically show floating modal (Ask Question panel) on app launch
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            ResponseOverlay.shared.show()
-        }
+        // Let AuthenticationManager handle all UI state changes
+        // It will automatically show appropriate windows based on auth state
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -50,7 +43,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
+                    // Use Nova logo instead of system icon
+        if let novaLogo = NSImage(named: "NovaLogo") {
+            novaLogo.size = NSSize(width: 18, height: 18)
+            button.image = novaLogo
+        } else {
             button.image = NSImage(systemSymbolName: "rectangle.dashed", accessibilityDescription: "Nova")
+        }
             button.imagePosition = .imageOnly
             button.target = self
             button.action = #selector(toggleSelection)

@@ -8,6 +8,7 @@ class AuthenticationManager: ObservableObject {
     @Published var isAuthenticated = false
     @Published var currentUser: User?
     @Published var isLoading = false
+    @Published var isSigningIn = false
     @Published var errorMessage: String?
     
     static let shared = AuthenticationManager()
@@ -16,20 +17,45 @@ class AuthenticationManager: ObservableObject {
         // Listen for auth state changes
         Auth.auth().addStateDidChangeListener { [weak self] _, user in
             Task { @MainActor in
+                let wasAuthenticated = self?.isAuthenticated ?? false
                 self?.currentUser = user
                 self?.isAuthenticated = user != nil
+                
+                // Handle UI transitions
+                if wasAuthenticated && !(self?.isAuthenticated ?? false) {
+                    // User signed out - hide response overlay (main window stays open)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        ResponseOverlay.shared.hide()
+                    }
+                } else if !wasAuthenticated && (self?.isAuthenticated ?? false) {
+                    // User signed in - show response overlay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        ResponseOverlay.shared.show()
+                    }
+                }
             }
+        }
+        
+        // Handle initial app launch state
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if self.isAuthenticated {
+                // Show floating modal if already authenticated
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    ResponseOverlay.shared.show()
+                }
+            }
+            // If not authenticated, main window stays open showing sign-in view
         }
     }
     
     func signInWithGoogle() {
-        isLoading = true
+        isSigningIn = true
         errorMessage = nil
         
         // Get clientID from Firebase config
         guard let clientID = FirebaseApp.app()?.options.clientID else {
             errorMessage = "Missing Firebase client ID"
-            isLoading = false
+            isSigningIn = false
             return
         }
         
@@ -39,7 +65,7 @@ class AuthenticationManager: ObservableObject {
         // Get the presenting window
         guard let window = NSApplication.shared.windows.first else {
             errorMessage = "No window to present from"
-            isLoading = false
+            isSigningIn = false
             return
         }
         
@@ -53,14 +79,14 @@ class AuthenticationManager: ObservableObject {
     private func handleGoogleSignInResult(result: GIDSignInResult?, error: Error?) {
         if let error = error {
             errorMessage = "Google sign-in error: \(error.localizedDescription)"
-            isLoading = false
+            isSigningIn = false
             return
         }
         
         guard let user = result?.user,
               let idToken = user.idToken?.tokenString else {
             errorMessage = "Missing Google ID token"
-            isLoading = false
+            isSigningIn = false
             return
         }
         
@@ -76,7 +102,7 @@ class AuthenticationManager: ObservableObject {
                 } else {
                     print("✅ Successfully signed in user: \(authResult?.user.uid ?? "unknown")")
                 }
-                self?.isLoading = false
+                self?.isSigningIn = false
             }
         }
     }

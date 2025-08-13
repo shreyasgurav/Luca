@@ -1,54 +1,127 @@
-[dotenv@17.2.1] injecting env (4) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
-(node:48307) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(node:4715) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
 (Use `node --trace-deprecation ...` to show where the warning was created)
-Server listening on http://localhost:3000
-Error: OpenAI error 400: {
-  "error": {
-    "message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
-    "type": "invalid_request_error",
-    "param": "max_tokens",
-    "code": "unsupported_parameter"
-  }
-}
-    at callOpenAI (/Users/shreyasgurav/Desktop/cheatingai/Server/lib/openaiClient.js:48:13)
-    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at async handler (/Users/shreyasgurav/Desktop/cheatingai/Server/functions/chat.js:31:20)
-🔢 Generating embedding for text: hey...
+🚀 CheatingAI Server running on http://localhost:3000
+🔑 OpenAI API: Configured
+🤖 Model: gpt-4o-mini
+🤖 Nova chat request with context length: 19
+🔢 Generating embedding for text: Hey...
 Embedding model: text-embedding-3-small, dimensions: 1536
 ✅ Generated embedding with 1536 dimensions
-Error: OpenAI error 400: {
-  "error": {
-    "message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
-    "type": "invalid_request_error",
-    "param": "max_tokens",
-    "code": "unsupported_parameter"
-  }
-}
-    at callOpenAI (/Users/shreyasgurav/Desktop/cheatingai/Server/lib/openaiClient.js:48:13)
-    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at async handler (/Users/shreyasgurav/Desktop/cheatingai/Server/functions/chat.js:31:20)
-Error: OpenAI error 400: {
-  "error": {
-    "message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
-    "type": "invalid_request_error",
-    "param": "max_tokens",
-    "code": "unsupported_parameter"
-  }
-}
-    at callOpenAI (/Users/shreyasgurav/Desktop/cheatingai/Server/lib/openaiClient.js:48:13)
-    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at async handler (/Users/shreyasgurav/Desktop/cheatingai/Server/functions/chat.js:31:20)
-🔢 Generating embedding for text: hey...
+🤖 Nova chat request with context length: 3
+🧠 Extracting memories from content: Hey
+
+Assistant: Hey there! How can I assist you today?...
+🔍 Cleaned text for parsing: []...
+📝 No memories to extract from this content
+🔢 Generating embedding for text: whats up buddy?...
 Embedding model: text-embedding-3-small, dimensions: 1536
 ✅ Generated embedding with 1536 dimensions
-Error: OpenAI error 400: {
-  "error": {
-    "message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
-    "type": "invalid_request_error",
-    "param": "max_tokens",
-    "code": "unsupported_parameter"
+🤖 Nova chat request with context length: 99
+🧠 Extracting memories from content: whats up buddy?
+
+Assistant: Not much! Just here and ready to help you with whatever you need. What’s...
+🔍 Cleaned text for parsing: []...
+📝 No memories to extract from this content
+🔢 Generating embedding for text: do you remember my college?...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🤖 Nova chat request with context length: 237
+🧠 Extracting memories from content: do you remember my college?
+
+Assistant: I don’t have specific details about your college from previo...
+🔍 Cleaned text for parsing: []...
+📝 No memories to extract from this content
+🔢 Generating embedding for text: university?...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🤖 Nova chat request with context length: 442
+🧠 Extracting memories from content: university?
+
+Assistant: It looks like I don't have the details about your university from our previo...
+🔍 Cleaned text for parsing: []...
+📝 No memories to extract from this content
+🔢 Generating embedding for text: I am shreyas gurav...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🤖 Nova chat request with context length: 679
+🧠 Extracting memories from content: I am shreyas gurav
+
+Assistant: Nice to meet you, Shreyas! How can I assist you today? Whether it’s r...
+🔍 Cleaned text for parsing: [
+  {
+    "kind": "personal",
+    "text": "User's name is Shreyas Gurav",
+    "summary": "Name: Shreyas Gurav",
+    "importance": 0.9,
+    "tags": ["name", "Shreyas", "Gurav"]
   }
-}
-    at callOpenAI (/Users/shreyasgurav/Desktop/cheatingai/Server/lib/openaiClient.js:48:13)
-    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at async handler (/Users/shreyasgurav/Desktop/cheatingai/Server/functions/chat.js:31:20)
+]...
+✅ Extracted 1 valid memories
+🔢 Generating embedding for text: User's name is Shreyas Gurav...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🔢 Generating embedding for text: I am in Somaiya Vidyavihar UNiversity...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🤖 Nova chat request with context length: 873
+🧠 Extracting memories from content: I am in Somaiya Vidyavihar UNiversity
+
+Assistant: Great to know you're at Somaiya Vidyavihar Univers...
+🔍 Cleaned text for parsing: [
+  {
+    "kind": "personal",
+    "text": "User is at Somaiya Vidyavihar University",
+    "summary": "Location: Somaiya Vidyavihar University",
+    "importance": 0.8,
+    "tags": ["Somaiya", "Vidyavih...
+✅ Extracted 1 valid memories
+🔢 Generating embedding for text: User is at Somaiya Vidyavihar University...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🔢 Generating embedding for text: actually my college name is KJ Somaiya Vidyavihar University...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🤖 Nova chat request with context length: 1183
+🧠 Extracting memories from content: actually my college name is KJ Somaiya Vidyavihar University
+
+Assistant: Thanks for clarifying, Shre...
+🔍 Cleaned text for parsing: [
+  {
+    "kind": "personal",
+    "text": "User's college name is KJ Somaiya Vidyavihar University",
+    "summary": "College: KJ Somaiya Vidyavihar University",
+    "importance": 0.9,
+    "tags": ["co...
+✅ Extracted 1 valid memories
+🔢 Generating embedding for text: User's college name is KJ Somaiya Vidyavihar University...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🔢 Generating embedding for text: hey nova...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🤖 Nova chat request with context length: 1544
+🧠 Extracting memories from content: hey nova
+
+Assistant: Hey Shreyas! How can I assist you today? Whether it's about your project, studi...
+🔍 Cleaned text for parsing: [
+  {
+    "kind": "personal",
+    "text": "User's name is Shreyas",
+    "summary": "Name: Shreyas",
+    "importance": 0.9,
+    "tags": ["name", "Shreyas"]
+  }
+]...
+✅ Extracted 1 valid memories
+🔢 Generating embedding for text: User's name is Shreyas...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🔢 Generating embedding for text: Hey...
+Embedding model: text-embedding-3-small, dimensions: 1536
+✅ Generated embedding with 1536 dimensions
+🤖 Nova chat request with context length: 3
+🧠 Extracting memories from content: Hey
+
+Assistant: Hi there! How can I assist you today?...
+🔍 Cleaned text for parsing: []...
+📝 No memories to extract from this content

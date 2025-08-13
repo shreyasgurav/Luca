@@ -78,6 +78,12 @@ final class ResponseOverlay {
             panel?.makeKey()
         }
     }
+    
+    func hide() {
+        DispatchQueue.main.async { [self] in
+            panel?.orderOut(nil)
+        }
+    }
 
     private func createPanel() {
         let style: NSWindow.StyleMask = [.borderless]
@@ -318,6 +324,13 @@ struct CompactView: View {
     
         var body: some View {
         HStack(spacing: 8) {
+                    // Nova Logo
+        Image("NovaLogo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 24, height: 24)
+                .shadow(color: .blue.opacity(0.3), radius: 2, x: 0, y: 1)
+            
             // Ask Question Button
             Button(action: onAskQuestion) {
                 HStack(spacing: 6) {
@@ -406,6 +419,12 @@ struct ExpandedChatView: View {
             // Header
             HStack {
                 HStack(spacing: 8) {
+                    Image("NovaLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 20, height: 20)
+                        .shadow(color: .blue.opacity(0.2), radius: 2, x: 0, y: 1)
+                    
                     Text("Nova")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.primary)

@@ -4,13 +4,14 @@
   "type": "commonjs",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "start:prod": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.637.0",
     "@aws-sdk/s3-request-presigner": "^3.637.0",
     "busboy": "^1.6.0",
-    "dotenv": "^17.2.1",
     "node-fetch": "^2.7.0"
   }
 }

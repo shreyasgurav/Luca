@@ -23,6 +23,22 @@ struct DashboardView: View {
             case .profile: return "person.circle"
             }
         }
+        
+        var logoImage: some View {
+            Group {
+                switch self {
+                case .memory:
+                    Image("NovaLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 16, height: 16)
+                case .profile:
+                    Image(systemName: "person.circle")
+                        .font(.system(size: 16))
+                        .frame(width: 16, height: 16)
+                }
+            }
+        }
     }
     
     var filteredMemories: [VectorMemory] {
@@ -118,14 +134,18 @@ struct DashboardView: View {
                     }
                 }
             } else {
-                // Fallback if no user
-                VStack {
-                    Image(systemName: "person.circle")
-                        .font(.system(size: 60))
-                        .foregroundColor(.secondary)
-                    Text("Not signed in")
+                // Fallback if no user - show Nova logo
+                VStack(spacing: 8) {
+                    Image("NovaLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 50, height: 50)
+                        .shadow(color: .blue.opacity(0.2), radius: 5, x: 0, y: 2)
+                    
+                    Text("Nova")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .fontWeight(.medium)
+                        .foregroundColor(.blue)
                 }
             }
         }
@@ -139,8 +159,7 @@ struct DashboardView: View {
                     selectedTab = tab
                 }) {
                     HStack {
-                        Image(systemName: tab.icon)
-                            .font(.body)
+                        tab.logoImage
                             .frame(width: 20)
                         
                         Text(tab.rawValue)
@@ -172,6 +191,26 @@ struct DashboardView: View {
     
     private var footerActionsView: some View {
         VStack(spacing: 8) {
+            Divider()
+            
+            // Nova branding in footer
+            HStack {
+                Image("NovaLogo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 16, height: 16)
+                    .opacity(0.6)
+                
+                Text("Nova")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            
             Divider()
             
             // Settings and logout
@@ -212,14 +251,81 @@ struct DashboardView: View {
     
     private var mainContentView: some View {
         Group {
-            switch selectedTab {
-            case .memory:
-                memoryManagementView
-            case .profile:
-                profileView
+            if authManager.isAuthenticated {
+                switch selectedTab {
+                case .memory:
+                    memoryManagementView
+                case .profile:
+                    profileView
+                }
+            } else {
+                signInView
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    // MARK: - Sign In View
+    
+    private var signInView: some View {
+        VStack(spacing: 30) {
+            Spacer()
+            
+            // Nova branding
+            VStack(spacing: 16) {
+                Image("NovaLogo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 120, height: 120)
+                    .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+                
+                Text("Nova")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                
+                Text("Your Intelligent AI Assistant")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Sign in button
+            Button(action: {
+                authManager.signInWithGoogle()
+            }) {
+                HStack(spacing: 12) {
+                    Image(systemName: "person.circle.fill")
+                        .font(.title2)
+                    
+                    Text("Sign in with Google")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+                .background(
+                    LinearGradient(
+                        colors: [.blue, .cyan],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
+            }
+            .buttonStyle(.plain)
+            .scaleEffect(authManager.isSigningIn ? 0.95 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: authManager.isSigningIn)
+            
+            if authManager.isSigningIn {
+                ProgressView()
+                    .scaleEffect(1.2)
+            }
+            
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.controlBackgroundColor))
     }
     
     // MARK: - Memory Management View
@@ -239,20 +345,28 @@ struct DashboardView: View {
     
     private var memoryHeaderView: some View {
         HStack {
-            VStack(alignment: .leading) {
-                Text("Memory Management")
-                    .font(.title2)
-                    .fontWeight(.bold)
+            HStack(spacing: 12) {
+                Image("NovaLogo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 32, height: 32)
+                    .shadow(color: .blue.opacity(0.2), radius: 3, x: 0, y: 1)
                 
-                HStack {
-                    Text("\(memories.count) memories stored")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                VStack(alignment: .leading) {
+                    Text("Memory Management")
+                        .font(.title2)
+                        .fontWeight(.bold)
                     
-                    if memoryManager.isProcessingMemory {
-                        Text("• Processing...")
+                    HStack {
+                        Text("\(memories.count) memories stored")
                             .font(.caption)
-                            .foregroundColor(.blue)
+                            .foregroundColor(.secondary)
+                        
+                        if memoryManager.isProcessingMemory {
+                            Text("• Processing...")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                        }
                     }
                 }
             }
@@ -261,22 +375,6 @@ struct DashboardView: View {
             
             // Actions
             HStack {
-                Button("Test Memory") {
-                    Task {
-                        await memoryManager.createTestMemory()
-                        await loadMemories()
-                    }
-                }
-                .foregroundColor(.blue)
-                
-                Button("Clear All") {
-                    Task {
-                        await clearAllMemories()
-                    }
-                }
-                .foregroundColor(.red)
-                .disabled(memories.isEmpty)
-                
                 Button("Refresh") {
                     Task {
                         await loadMemories()
@@ -351,6 +449,13 @@ struct DashboardView: View {
     
     private var profileHeaderView: some View {
         VStack(spacing: 16) {
+            // Nova logo above avatar
+            Image("NovaLogo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 60, height: 60)
+                .shadow(color: .blue.opacity(0.3), radius: 5, x: 0, y: 2)
+            
             // Large avatar
             Circle()
                 .fill(LinearGradient(
@@ -450,10 +555,7 @@ struct DashboardView: View {
         memories.removeAll { $0.id == memory.id }
     }
     
-    private func clearAllMemories() async {
-        await memoryManager.clearAllMemories()
-        await loadMemories() // Reload to update UI
-    }
+
     
     private func mostCommonMemoryType() -> String {
         let typeCounts = Dictionary(grouping: memories, by: { $0.type })
