@@ -242,6 +242,7 @@ struct ResponsePanel: View {
         
         // Add user message to conversation
         conversation.append(ChatMessage(content: messageText, isUser: true))
+        ConversationManager.shared.addUser(messageText)
         
         // Check if message asks about screen content - be more specific
         let needsScreenshot = messageText.lowercased().contains("screen") || 
@@ -335,12 +336,16 @@ struct ResponsePanel: View {
             return
         }
 
-        ClientAPI.shared.chat(message: messageText, sessionId: SessionManager.shared.currentSessionId) { result in
+        // Include recent thread context like ChatGPT
+        let threadContext = ConversationManager.shared.recentThreadContext()
+        let enriched = threadContext.isEmpty ? messageText : (threadContext + "\n\nUser: " + messageText)
+        ClientAPI.shared.chat(message: enriched, sessionId: SessionManager.shared.currentSessionId) { result in
             DispatchQueue.main.async {
                 self.isLoading = false
                 switch result {
                 case .success(let reply):
                     self.conversation.append(ChatMessage(content: reply, isUser: false))
+                    ConversationManager.shared.addAssistant(reply)
                 case .failure(let error):
                     self.conversation.append(ChatMessage(content: "❌ Error: \(error.localizedDescription)", isUser: false))
                 }
@@ -359,12 +364,15 @@ struct ResponsePanel: View {
     }
 
     private func fallbackChat(_ messageText: String) {
-        ClientAPI.shared.chat(message: messageText, sessionId: SessionManager.shared.currentSessionId) { result in
+        let threadContext = ConversationManager.shared.recentThreadContext()
+        let enriched = threadContext.isEmpty ? messageText : (threadContext + "\n\nUser: " + messageText)
+        ClientAPI.shared.chat(message: enriched, sessionId: SessionManager.shared.currentSessionId) { result in
             DispatchQueue.main.async {
                 self.isLoading = false
                 switch result {
                 case .success(let reply):
                     self.conversation.append(ChatMessage(content: reply, isUser: false))
+                    ConversationManager.shared.addAssistant(reply)
                 case .failure(let error):
                     self.conversation.append(ChatMessage(content: "❌ Error: \(error.localizedDescription)", isUser: false))
                 }
@@ -977,47 +985,52 @@ struct ModernChatBubble: View {
     @State private var showCopyButton: Bool = false
     
     var body: some View {
-        HStack {
-            if message.isUser { Spacer(minLength: 50) }
-            
-            VStack(alignment: message.isUser ? .trailing : .leading, spacing: 4) {
                 HStack {
-                    Text(message.content)
-                        .font(.system(size: 14))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(
-                            message.isUser ?
-                            AnyShapeStyle(LinearGradient(colors: [.blue.opacity(0.8), .cyan.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)) :
-                            AnyShapeStyle(Color.white.opacity(0.1))
-                        )
-                        .foregroundColor(message.isUser ? .white : .primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .textSelection(.enabled)
-                        .onHover { hovering in
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showCopyButton = hovering && !message.isUser
+                    if message.isUser { Spacer(minLength: 50) }
+                    
+                    VStack(alignment: message.isUser ? .trailing : .leading, spacing: 4) {
+                        HStack(alignment: .top) {
+                            Group {
+                                if message.isUser {
+                                    Text(message.content)
+                                        .font(.system(size: 14))
+                                } else {
+                                    MarkdownRendererView(text: message.content)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(
+                                message.isUser ?
+                                AnyShapeStyle(LinearGradient(colors: [.blue.opacity(0.8), .cyan.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)) :
+                                AnyShapeStyle(Color.white.opacity(0.1))
+                            )
+                            .foregroundColor(message.isUser ? .white : .primary)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .textSelection(.enabled)
+                            .onHover { hovering in
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showCopyButton = hovering && !message.isUser
+                                }
+                            }
+                            
+                            if !message.isUser {
+                                Button(action: {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(message.content, forType: .string)
+                                }) {
+                                    Image(systemName: "doc.on.doc")
+                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 12))
+                                        .frame(width: 20, height: 20)
+                                        .background(.ultraThinMaterial)
+                                        .clipShape(Circle())
+                                        .opacity(showCopyButton ? 1.0 : 0.0)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!showCopyButton)
                             }
                         }
-                    
-                    // Copy button for AI responses - always reserve space
-                    if !message.isUser {
-                        Button(action: {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(message.content, forType: .string)
-                        }) {
-                            Image(systemName: "doc.on.doc")
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 12))
-                                .frame(width: 20, height: 20)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Circle())
-                                .opacity(showCopyButton ? 1.0 : 0.0)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!showCopyButton)
-                    }
-                }
                 
                 HStack(spacing: 4) {
                     if message.hasScreenshot {
