@@ -178,12 +178,25 @@ final class ClientAPI {
             }
             
             let context = await VectorMemoryManager.shared.getRelevantMemoriesWithContext(for: message, sessionId: sessionId)
+
+            // Ambient context: location and local time
+            var ambient: [String] = []
+            if let coord = LocationManager.shared.lastCoordinate {
+                ambient.append("Location: lat=\(coord.latitude), lng=\(coord.longitude)")
+            }
+            let now = Date()
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEE, MMM d, yyyy h:mm a"
+            let timeString = formatter.string(from: now)
+            let tz = TimeZone.current
+            ambient.append("Local Time: \(timeString) (\(tz.identifier), GMT\(tz.secondsFromGMT()/3600))")
+            let ambientBlock = ambient.isEmpty ? "" : "[Ambient Context: \(ambient.joined(separator: "; "))]\n\n"
             
             var request = URLRequest(url: baseURL.appendingPathComponent("/api/chat"))
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let body: [String: Any] = [
-                "message": message,
+                "message": ambientBlock + message,
                 "sessionId": sessionId ?? "",
                 "promptContext": context.isEmpty ? nil : context
             ]
@@ -211,6 +224,65 @@ final class ClientAPI {
                 }
             }.resume()
         }
+    }
+
+    // MARK: - Listen API
+
+    func listenStart(preferredSource: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        let url = baseURL.appendingPathComponent("/api/listen/start")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "preferredSource": preferredSource ?? "mic",
+            "sessionId": SessionManager.shared.currentSessionId ?? ""
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            if let error { completion(.failure(error)); return }
+            guard let data else { completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"]))); return }
+            do {
+                let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                if let sessionId = obj?["sessionId"] as? String { completion(.success(sessionId)) }
+                else { completion(.failure(NSError(domain: "ClientAPI", code: -2, userInfo: [NSLocalizedDescriptionKey: "Missing sessionId"])))}
+            } catch { completion(.failure(error)) }
+        }.resume()
+    }
+
+    func listenSendChunk(sessionId: String, audioData: Data, startSec: Int?, endSec: Int?, completion: @escaping (Bool) -> Void) {
+        var comps = URLComponents(url: baseURL.appendingPathComponent("/api/listen/chunk"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "sessionId", value: sessionId)]
+        var request = URLRequest(url: comps.url!)
+        request.httpMethod = "POST"
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"audio\"; filename=\"chunk.wav\"\r\n")
+        body.appendString("Content-Type: audio/wav\r\n\r\n")
+        body.append(audioData)
+        body.appendString("\r\n")
+        body.appendString("--\(boundary)--\r\n")
+        // Use uploadTask with 'from' and do NOT set httpBody to avoid double body stream
+        URLSession.shared.uploadTask(with: request, from: body) { _, _, error in
+            completion(error == nil)
+        }.resume()
+    }
+
+    func listenStop(sessionId: String, completion: @escaping (Result<[String: Any], Error>) -> Void) {
+        var comps = URLComponents(url: baseURL.appendingPathComponent("/api/listen/stop"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "sessionId", value: sessionId)]
+        var request = URLRequest(url: comps.url!)
+        request.httpMethod = "POST"
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            if let error { completion(.failure(error)); return }
+            guard let data else { completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"]))); return }
+            do {
+                let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                completion(.success(obj ?? [:]))
+            } catch { completion(.failure(error)) }
+        }.resume()
     }
     
     private func extractAndStoreMemories(userMessage: String, assistantResponse: String) async {
@@ -278,6 +350,27 @@ final class ClientAPI {
             // Fallback to simple heuristic extraction
             await fallbackMemoryExtraction(userMessage: content)
         }
+    }
+
+    // MARK: - Places API
+    struct PlacesSearchResponse: Decodable { struct Item: Decodable { let id: String; let name: String; let rating: Double?; let user_ratings_total: Int?; let address: String?; let open_now: Bool?; let lat: Double?; let lng: Double?; let distance_m: Int?; let google_maps_url: String?; let apple_maps_url: String? }; let query: String; let count: Int; let results: [Item] }
+
+    func placesSearch(query: String, lat: Double, lng: Double, radius: Int = 2000, openNow: Bool = true, completion: @escaping (Result<PlacesSearchResponse, Error>) -> Void) {
+        var comps = URLComponents(url: baseURL.appendingPathComponent("/api/places/search"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "lat", value: String(lat)),
+            URLQueryItem(name: "lng", value: String(lng)),
+            URLQueryItem(name: "radius", value: String(radius)),
+            URLQueryItem(name: "open_now", value: openNow ? "true" : "false")
+        ]
+        let url = comps.url!
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            if let error { completion(.failure(error)); return }
+            guard let data else { completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"]))); return }
+            do { completion(.success(try JSONDecoder().decode(PlacesSearchResponse.self, from: data))) }
+            catch { completion(.failure(error)) }
+        }.resume()
     }
     
     private func mapStringToMemoryType(_ kindString: String) -> MemoryType {

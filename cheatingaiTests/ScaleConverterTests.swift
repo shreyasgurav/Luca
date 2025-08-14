@@ -1,4 +1,5 @@
 import Testing
+import CoreGraphics
 @testable import cheatingai
 
 struct ScaleConverterTests {

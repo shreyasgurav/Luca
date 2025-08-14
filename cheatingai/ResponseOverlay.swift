@@ -328,6 +328,32 @@ struct ResponsePanel: View {
             return
         }
 
+        // If message appears to be a nearby/open-now intent and we have location, call places
+        if isNearbyIntent(messageText), let coord = LocationManager.shared.lastCoordinate {
+            let q = extractPlacesQuery(from: messageText)
+            ClientAPI.shared.placesSearch(query: q, lat: coord.latitude, lng: coord.longitude, radius: 3000, openNow: true) { result in
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    switch result {
+                    case .success(let resp):
+                        if resp.results.isEmpty {
+                            self.fallbackChat(messageText)
+                        } else {
+                            let top = resp.results.prefix(5).enumerated().map { idx, r in
+                                let open = (r.open_now == true) ? "(open now)" : ""
+                                let dist = r.distance_m != nil ? " - \(r.distance_m!)m" : ""
+                                return "\(idx+1). \(r.name) \(open)\(dist)\n   \(r.address ?? "")\n   Maps: \(r.apple_maps_url ?? r.google_maps_url ?? "")"
+                            }.joined(separator: "\n\n")
+                            self.conversation.append(ChatMessage(content: "Here are nearby options:\n\n" + top, isUser: false))
+                        }
+                    case .failure:
+                        self.fallbackChat(messageText)
+                    }
+                }
+            }
+            return
+        }
+
         ClientAPI.shared.chat(message: messageText, sessionId: SessionManager.shared.currentSessionId) { result in
             DispatchQueue.main.async {
                 self.isLoading = false
@@ -364,48 +390,105 @@ struct ResponsePanel: View {
             }
         }
     }
+
+    private func isNearbyIntent(_ text: String) -> Bool {
+        let t = text.lowercased()
+        let keys = ["near me", "nearby", "closest", "open now", "around me", "near"]
+        return keys.contains { t.contains($0) }
+    }
+
+    private func extractPlacesQuery(from text: String) -> String {
+        // Heuristic: use the noun before/after nearby keywords
+        let t = text.lowercased()
+        if t.contains("salon") || t.contains("saloon") { return "salon" }
+        if t.contains("barber") { return "barber" }
+        if t.contains("restaurant") || t.contains("dinner") { return "restaurant" }
+        if t.contains("coffee") || t.contains("cafe") { return "coffee" }
+        if t.contains("pharmacy") { return "pharmacy" }
+        if t.contains("gym") { return "gym" }
+        return text
+    }
 }
 
 struct CompactView: View {
     let onAskQuestion: () -> Void
     let onHide: () -> Void
+    @State private var isListening: Bool = false
+    @State private var listeningSessionId: String = ""
+    @State private var startTime: Date?
+    @State private var timer: Timer? = nil
+    @State private var now: Date = Date()
     @State private var pulseScale: CGFloat = 1.0
+    @State private var localTranscript: String = ""
+    @State private var ocrEnabled: Bool = true
     
         var body: some View {
         HStack(spacing: 8) {
-                    // Nova Logo
-        Image("NovaLogo")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 24, height: 24)
-                .shadow(color: .blue.opacity(0.3), radius: 2, x: 0, y: 1)
-            
-            // Ask Question Button
-            Button(action: onAskQuestion) {
-                HStack(spacing: 6) {
-                    Image(systemName: "text.bubble")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("Ask Question")
-                        .font(.system(size: 12, weight: .semibold))
-                        .minimumScaleFactor(0.8)
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(
-                    LinearGradient(
-                        colors: [.blue, .cyan],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .clipShape(Capsule())
-                .shadow(color: Color.blue.opacity(0.3), radius: 4, x: 0, y: 2)
-            }
-            .buttonStyle(.plain)
-            .scaleEffect(pulseScale)
-            .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulseScale)
-            
+			// Listen Button FIRST
+			Button(action: toggleListening) {
+				HStack(spacing: 6) {
+					if isListening {
+						Image(systemName: "record.circle.fill")
+							.font(.system(size: 12, weight: .medium))
+							.foregroundColor(.white)
+						Text(startTime.map { listeningDuration(from: $0) } ?? "00:00")
+							.font(.system(size: 12, weight: .semibold))
+							.monospacedDigit()
+							.minimumScaleFactor(0.9)
+							.lineLimit(1)
+					} else {
+						Image(systemName: "waveform")
+							.font(.system(size: 12, weight: .medium))
+						Text("Listen")
+							.font(.system(size: 12, weight: .semibold))
+							.minimumScaleFactor(0.9)
+							.lineLimit(1)
+					}
+				}
+				.frame(minWidth: 100)
+				.foregroundColor(.white)
+				.padding(.horizontal, 16)
+				.padding(.vertical, 8)
+				.background(
+					LinearGradient(
+						colors: isListening ? [.red, .pink] : [.purple, .indigo],
+						startPoint: .topLeading,
+						endPoint: .bottomTrailing
+					)
+				)
+				.clipShape(Capsule())
+				.shadow(color: (isListening ? Color.red : Color.purple).opacity(0.3), radius: 4, x: 0, y: 2)
+			}
+			.buttonStyle(.plain)
+
+			// Ask Question SECOND
+			Button(action: onAskQuestion) {
+				HStack(spacing: 6) {
+					Image(systemName: "text.bubble")
+						.font(.system(size: 12, weight: .medium))
+					Text("Ask Question")
+						.font(.system(size: 12, weight: .semibold))
+						.minimumScaleFactor(0.9)
+						.lineLimit(1)
+				}
+				.frame(minWidth: 130)
+				.foregroundColor(.white)
+				.padding(.horizontal, 16)
+				.padding(.vertical, 8)
+				.background(
+					LinearGradient(
+						colors: [.blue, .cyan],
+						startPoint: .topLeading,
+						endPoint: .bottomTrailing
+					)
+				)
+				.clipShape(Capsule())
+				.shadow(color: Color.blue.opacity(0.3), radius: 4, x: 0, y: 2)
+			}
+			.buttonStyle(.plain)
+			.scaleEffect(pulseScale)
+			.animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulseScale)
+
             // Action Buttons (Hide and Settings)
             HStack(spacing: 8) {
                 // Hide Button
@@ -417,15 +500,16 @@ struct CompactView: View {
                             .font(.system(size: 12, weight: .semibold))
                             .minimumScaleFactor(0.8)
                     }
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial)
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                    )
-                    .clipShape(Capsule())
+						.foregroundColor(.secondary)
+						.padding(.horizontal, 18)
+						.padding(.vertical, 8)
+						.background(.ultraThinMaterial)
+						.overlay(
+							Capsule()
+								.stroke(Color.white.opacity(0.2), lineWidth: 1)
+						)
+						.clipShape(Capsule())
+						.frame(minWidth: 90)
                 }
                 .buttonStyle(.plain)
                 
@@ -451,6 +535,115 @@ struct CompactView: View {
         .padding(.vertical, 12)
         .onAppear {
             pulseScale = 1.05
+        }
+		// Timer now appears inside the Listen capsule; removed floating overlay
+    }
+
+    private func listeningDuration(from start: Date) -> String {
+        let s = Int(now.timeIntervalSince(start))
+        let m = s / 60
+        let r = s % 60
+        return String(format: "%02d:%02d", m, r)
+    }
+
+    private func toggleListening() {
+        if isListening {
+            guard !listeningSessionId.isEmpty else { isListening = false; return }
+            ClientAPI.shared.listenStop(sessionId: listeningSessionId) { result in
+                DispatchQueue.main.async {
+						if case .success(let obj) = result {
+							let sid = listeningSessionId.isEmpty ? (obj["sessionId"] as? String ?? UUID().uuidString) : listeningSessionId
+							let serverTranscript = (obj["transcript"] as? String) ?? ""
+							// Prefer local on-device transcript; if server only returned mock and local is empty, save a helpful placeholder file
+							let serverIsMock = serverTranscript.contains("[mock transcript") || serverTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+							let localHasText = !localTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+							let savedChunks = (obj["stats"] as? [String: Any])? ["chunks"] as? Int ?? 0
+							if localHasText {
+								SessionTranscriptStore.shared.saveTranscript(sessionId: sid, transcript: localTranscript)
+								ResponseOverlay.shared.show(text: "📝 Session saved (\(savedChunks) chunks). Using on-device transcript (\(localTranscript.count) chars)")
+							} else if serverIsMock {
+								let placeholder = """
+								[No system audio detected]
+								To capture YouTube/Zoom audio:
+								1) Install BlackHole (2ch)
+								2) Open Audio MIDI Setup → Create Multi‑Output (Speakers + BlackHole)
+								3) System Settings → Sound → Output: Multi‑Output, Input: BlackHole 2ch
+								Then press Listen again.
+								"""
+								SessionTranscriptStore.shared.saveTranscript(sessionId: sid, transcript: placeholder)
+								ResponseOverlay.shared.show(text: "📝 Session saved (placeholder). Configure Multi‑Output + BlackHole to capture system audio.")
+							} else {
+								SessionTranscriptStore.shared.saveTranscript(sessionId: sid, transcript: serverTranscript)
+								ResponseOverlay.shared.show(text: "📝 Session saved (\(savedChunks) chunks).")
+							}
+						} else {
+							// Network/stop error: still save local if present, otherwise save placeholder guidance
+							let sid = listeningSessionId.isEmpty ? UUID().uuidString : listeningSessionId
+							let localText = localTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+							if !localText.isEmpty {
+								SessionTranscriptStore.shared.saveTranscript(sessionId: sid, transcript: localText)
+								ResponseOverlay.shared.show(text: "📝 Session saved.")
+							} else {
+								let placeholder = """
+								[No system audio detected]
+								To capture YouTube/Zoom audio:
+								1) Install BlackHole (2ch)
+								2) Open Audio MIDI Setup → Create Multi‑Output (Speakers + BlackHole)
+								3) System Settings → Sound → Output: Multi‑Output, Input: BlackHole 2ch
+								Then press Listen again.
+								"""
+								SessionTranscriptStore.shared.saveTranscript(sessionId: sid, transcript: placeholder)
+								ResponseOverlay.shared.show(text: "📝 Session saved (placeholder). Configure Multi‑Output + BlackHole to capture system audio.")
+							}
+						}
+                }
+            }
+            AudioCaptureManager.shared.stopListening() {}
+            SpeechTranscriber.shared.stop()
+            ScreenOCRManager.shared.stop()
+            isListening = false
+            listeningSessionId = ""
+            startTime = nil
+            timer?.invalidate(); timer = nil
+        } else {
+            ClientAPI.shared.listenStart { result in
+                switch result {
+                case .success(let sid):
+                    listeningSessionId = sid
+                    startTime = Date()
+                    // Start mic capture and parallel on-device streaming transcription for real-time text
+                    localTranscript = ""
+                    // Proactive hint for first-time users to set up system audio routing
+                    ResponseOverlay.shared.show(text: "🎧 Tip: For system audio (YouTube/Zoom), install BlackHole → create Multi-Output (Speakers+BlackHole) in Audio MIDI Setup → set Input to BlackHole 2ch, then Listen.")
+                    SpeechTranscriber.shared.start(onPartial: { _ in
+                        // no-op
+                    }, onFinal: { finalText in
+                        if finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
+                        localTranscript += (localTranscript.isEmpty ? "" : "\n") + finalText
+                    })
+
+                    if ocrEnabled {
+                        ScreenOCRManager.shared.start(captureEvery: 1.0, excludeWindow: ResponseOverlay.shared.panel) { text in
+                            let stamped = "[screen] " + text
+                            localTranscript += (localTranscript.isEmpty ? "" : "\n") + stamped
+                        }
+                    }
+
+                    AudioCaptureManager.shared.startListening(sessionId: sid) { okMic in
+                        DispatchQueue.main.async {
+                            isListening = okMic
+                            if okMic {
+                                timer?.invalidate()
+                                timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in now = Date() }
+                            } else {
+                                ResponseOverlay.shared.show(text: "🎤 Can't access mic or start audio. Check mic permission in System Settings > Privacy & Security > Microphone.")
+                            }
+                        }
+                    }
+                case .failure:
+                    break
+                }
+            }
         }
     }
 }

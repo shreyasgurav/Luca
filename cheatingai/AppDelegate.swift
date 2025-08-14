@@ -32,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Pre-warm selection controller
         selectionController = SelectionController()
         
+        // Start location updates (with user consent)
+        LocationManager.shared.start()
+
         // Let AuthenticationManager handle all UI state changes
         // It will automatically show appropriate windows based on auth state
     }

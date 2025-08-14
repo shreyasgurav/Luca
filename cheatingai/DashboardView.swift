@@ -4,6 +4,7 @@ import FirebaseAuth
 struct DashboardView: View {
     @StateObject private var authManager = AuthenticationManager.shared
     @StateObject private var memoryManager = VectorMemoryManager.shared
+    @StateObject private var sessionsStore = SessionTranscriptStore.shared
     @State private var selectedTab: DashboardTab = .memory
     @State private var memories: [VectorMemory] = []
     @State private var isLoadingMemories = true
@@ -16,11 +17,15 @@ struct DashboardView: View {
     enum DashboardTab: String, CaseIterable {
         case memory = "Memory"
         case profile = "Profile"
+        case integrations = "Integrations"
+        case sessions = "Sessions"
         
         var icon: String {
             switch self {
             case .memory: return "brain.head.profile"
             case .profile: return "person.circle"
+            case .integrations: return "puzzlepiece"
+            case .sessions: return "waveform"
             }
         }
         
@@ -34,6 +39,14 @@ struct DashboardView: View {
                         .frame(width: 16, height: 16)
                 case .profile:
                     Image(systemName: "person.circle")
+                        .font(.system(size: 16))
+                        .frame(width: 16, height: 16)
+                case .integrations:
+                    Image(systemName: "puzzlepiece")
+                        .font(.system(size: 16))
+                        .frame(width: 16, height: 16)
+                case .sessions:
+                    Image(systemName: "waveform")
                         .font(.system(size: 16))
                         .frame(width: 16, height: 16)
                 }
@@ -64,6 +77,7 @@ struct DashboardView: View {
         .frame(minWidth: 900, minHeight: 600)
         .task {
             await loadMemories()
+            await sessionsStore.loadSessions()
         }
         .alert("Delete Memory", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
@@ -168,13 +182,21 @@ struct DashboardView: View {
                         
                         Spacer()
                         
-                        // Badge for memory count
+                        // Badge for counts
                         if tab == .memory && !memories.isEmpty {
                             Text("\(memories.count)")
                                 .font(.caption2)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color.blue)
+                                .foregroundColor(.white)
+                                .clipShape(Capsule())
+                        } else if tab == .sessions && !sessionsStore.sessions.isEmpty {
+                            Text("\(sessionsStore.sessions.count)")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.purple)
                                 .foregroundColor(.white)
                                 .clipShape(Capsule())
                         }
@@ -257,6 +279,10 @@ struct DashboardView: View {
                     memoryManagementView
                 case .profile:
                     profileView
+                case .integrations:
+                    integrationsView
+                case .sessions:
+                    sessionsView
                 }
             } else {
                 signInView
@@ -446,6 +472,64 @@ struct DashboardView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
+
+    // MARK: - Sessions View
+    private var sessionsView: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 12) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                Text("Sessions")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                Spacer()
+                Button("Refresh") { Task { await sessionsStore.loadSessions() } }
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+
+            if sessionsStore.sessions.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer()
+                    Image(systemName: "text.alignleft")
+                        .font(.system(size: 40))
+                        .foregroundColor(.secondary)
+                    Text("No sessions yet")
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+            } else {
+                List {
+                    ForEach(sessionsStore.sessions) { s in
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "doc.text")
+                                .foregroundColor(.secondary)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(s.id)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                Text("\(s.createdAt.formatted(.dateTime.day().month().hour().minute())) • \(ByteCountFormatter.string(fromByteCount: Int64(s.sizeBytes), countStyle: .file))")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(s.preview)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(3)
+                            }
+                            Spacer()
+                            Button("Open in Finder") { sessionsStore.revealInFinder(s) }
+                            Button("Delete") { sessionsStore.delete(s) }
+                                .foregroundColor(.red)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
     
     private var profileHeaderView: some View {
         VStack(spacing: 16) {
@@ -497,17 +581,6 @@ struct DashboardView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Gmail Integration")
-                        .font(.headline)
-                        .fontWeight(.medium)
-
-                    GmailIntegrationView()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
@@ -524,6 +597,34 @@ struct DashboardView: View {
             }
         }
         .frame(maxWidth: 500)
+    }
+
+    private var integrationsView: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "puzzlepiece.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                Text("Integrations")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                Spacer()
+            }
+            .padding(.horizontal, 4)
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Gmail Integration")
+                        .font(.headline)
+                        .fontWeight(.medium)
+                    GmailIntegrationView()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Spacer()
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
     
     // MARK: - Helper Functions

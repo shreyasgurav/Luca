@@ -1,3 +1,30 @@
+Nova — System Audio Transcription Setup (BlackHole)
+
+Quick steps on macOS for recording YouTube/Zoom/system audio:
+
+1) Install BlackHole (2ch)
+   - Download from: https://github.com/ExistentialAudio/BlackHole
+   - Run the installer and allow the security prompts
+
+2) Create a Multi-Output device
+   - Open “Audio MIDI Setup” (Utilities)
+   - Press + at bottom-left → Create Multi-Output Device
+   - Check your Speakers (or Headphones) and BlackHole 2ch
+   - Set the Master Device to your real output (e.g., MacBook Speakers)
+
+3) Route macOS Sound
+   - System Settings → Sound → Output: Multi-Output Device
+   - System Settings → Sound → Input: BlackHole 2ch
+
+4) Use Nova
+   - Click Listen, then play the system audio (YouTube, Zoom)
+   - Nova will detect audio and transcribe in real time (local) and save the session text
+
+Troubleshooting
+- If transcript is empty or shows “mock transcript”, Input likely wasn’t BlackHole 2ch.
+- If you hear no audio, uncheck “Drift Correction” on your Multi-Output except for the secondary device.
+- Reopen Audio MIDI Setup if devices don’t appear; reselect in System Settings.
+
 ## Nova — Neural Omni-View Assistant
 
 An on-device macOS assistant that sees your screen, understands context, and helps across tasks. Nova captures, analyzes, chats, and remembers—combining multimodal AI with a refined desktop UX.
@@ -128,6 +155,10 @@ cd Server && npm start
 - Evaluation harness for retrieval and prompt changes
 - Built-in rate limiting and auth middleware
 
+---
+
+## License
+MIT
 
 ---
 

@@ -25,5 +25,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Nova uses your location to answer “near me” and “open now” questions.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nova uses the microphone for listening sessions when system audio is unavailable.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Nova transcribes audio to provide real-time notes and summaries.</string>
 </dict>
 </plist>
