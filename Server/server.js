@@ -45,6 +45,10 @@ const server = http.createServer((req, res) => {
       api_configured: !!config.OPENAI_API_KEY && config.OPENAI_API_KEY !== 'your-openai-api-key-here'
     }));
   }
+  if (req.url === '/api/healthz') {
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ status: 'ok' }));
+  }
   if (req.url.startsWith('/debug/listMemories')) {
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify({ 

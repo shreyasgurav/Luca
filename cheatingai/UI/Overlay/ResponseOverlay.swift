@@ -755,25 +755,14 @@ struct CompactView: View {
         inlineInput = ""
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { showInlineChat = false }
 
-        // Detect screen intent → screenshot + analyze
-        let lower = text.lowercased()
-        // Also trigger when the immediately previous assistant asked to take a screenshot and the user replied with yes/ok
-        let lastAssistantAskedForShot = inlineConversation.last.map { !$0.isUser && $0.content.lowercased().contains("screenshot") } ?? false
-        let isAffirmative = ["yes", "ok", "okay", "sure", "do it", "go ahead", "alright"].contains(lower)
-        let needsScreenshot = (
-            lower.contains("screen") || lower.contains("screenshot") ||
-            lower.contains("what's on") || lower.contains("whats on") ||
-            lower.contains("on my screen") || lower.contains("see this") ||
-            lower.contains("see here") || lower.contains("this page") ||
-            lower.contains("this tab") || lower.contains("this slide") ||
-            lower.contains("look at") ||
-            (lastAssistantAskedForShot && isAffirmative)
-        )
-        if needsScreenshot {
+        // Route intent centrally to keep behavior consistent
+        let lastAssistant = inlineConversation.last(where: { !$0.isUser })?.content
+        switch IntentRouter.route(for: text, lastAssistantMessage: lastAssistant) {
+        case .screenshot(let prompt):
             DispatchQueue.main.async {
                 let screenshotData = ScreenshotManager.captureFullScreen(excludeWindow: ResponseOverlay.shared.panel)
                 if let data = screenshotData {
-                    ClientAPI.shared.uploadAndAnalyze(imageData: data, includeOCR: true, sessionId: SessionManager.shared.currentSessionId, customPrompt: text) { result in
+                    AnalyzeAPI.upload(imageData: data, includeOCR: FeatureFlags.ocrEnabled, sessionId: SessionManager.shared.currentSessionId, prompt: prompt) { result in
                         DispatchQueue.main.async {
                             guard self.inlineChatSessionId == requestId else { return }
                             inlineLoading = false
@@ -791,13 +780,16 @@ struct CompactView: View {
                     }
                 } else {
                     // Fallback to text-only if screenshot fails
-                    self.inlineSendTextOnly(text: text, requestId: requestId)
+                    self.inlineSendTextOnly(text: prompt, requestId: requestId)
                 }
             }
-            return
+        case .gmail(let question):
+            self.inlineSendTextOnly(text: question, requestId: requestId)
+        case .places(let query):
+            self.inlineSendTextOnly(text: query, requestId: requestId)
+        case .plainChat(let message):
+            self.inlineSendTextOnly(text: message, requestId: requestId)
         }
-        // Text-only path
-        self.inlineSendTextOnly(text: text, requestId: requestId)
     }
 
     private func inlineSendTextOnly(text: String, requestId: UUID) {

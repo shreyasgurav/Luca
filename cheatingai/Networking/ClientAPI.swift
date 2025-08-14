@@ -36,7 +36,7 @@ final class ClientAPI {
     static let shared = ClientAPI()
     private init() {}
 
-    var baseURL: URL = URL(string: "http://localhost:3000")!
+    var baseURL: URL = AppConfig.serverBaseURL
 
     func uploadAndAnalyze(imageData: Data, includeOCR: Bool, sessionId: String?, customPrompt: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
         let endpoint = baseURL.appendingPathComponent("/api/analyze")
