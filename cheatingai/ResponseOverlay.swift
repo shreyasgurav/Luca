@@ -194,28 +194,9 @@ struct ResponsePanel: View {
             
             VStack(spacing: 0) {
                 if !isExpanded {
-                    // Compact Mode - Two buttons
+                    // Compact Mode with inline chat (no expand)
                     CompactView(
-                                            onAskQuestion: {
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                            isExpanded = true
-                            // Resize window
-                            ResponseOverlay.shared.panel?.setFrame(
-                                CGRect(x: ResponseOverlay.shared.panel?.frame.origin.x ?? 0,
-                                       y: ResponseOverlay.shared.panel?.frame.origin.y ?? 0,
-                                       width: 400,
-                                       height: 500),
-                                display: true,
-                                animate: true
-                            )
-                            
-                            // Ensure window becomes key for text input
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                                ResponseOverlay.shared.panel?.makeKey()
-                                ResponseOverlay.shared.panel?.makeKeyAndOrderFront(nil)
-                            }
-                        }
-                    },
+                        onAskQuestion: {},
                         onHide: {
                             ResponseOverlay.shared.panel?.orderOut(nil)
                         }
@@ -421,8 +402,15 @@ struct CompactView: View {
     @State private var pulseScale: CGFloat = 1.0
     @State private var localTranscript: String = ""
     @State private var ocrEnabled: Bool = true
+    @State private var showInlineChat: Bool = false
+    @State private var inlineInput: String = ""
+    @State private var inlineConversation: [ChatMessage] = []
+    @State private var inlineLoading: Bool = false
+    @State private var inlineChatSessionId: UUID = UUID()
+    @FocusState private var inlineFocused: Bool
     
         var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
         HStack(spacing: 8) {
 			// Listen Button FIRST
 			Button(action: toggleListening) {
@@ -461,8 +449,19 @@ struct CompactView: View {
 			}
 			.buttonStyle(.plain)
 
-			// Ask Question SECOND
-			Button(action: onAskQuestion) {
+			// Ask Question SECOND → shows one-shot inline input below
+			Button(action: {
+				withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+					showInlineChat = true
+					let frame = ResponseOverlay.shared.panel?.frame ?? .zero
+					let newHeight: CGFloat = 300
+					ResponseOverlay.shared.panel?.setFrame(CGRect(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: newHeight), display: true, animate: true)
+				}
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+					inlineFocused = true
+					ResponseOverlay.shared.panel?.makeKey()
+				}
+			}) {
 				HStack(spacing: 6) {
 					Image(systemName: "text.bubble")
 						.font(.system(size: 12, weight: .medium))
@@ -532,7 +531,93 @@ struct CompactView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 12)
+        .padding(.top, 12)
+        
+		if !inlineConversation.isEmpty || inlineLoading || showInlineChat {
+			VStack(spacing: 8) {
+				// Chat header with Clear button
+				HStack {
+					Spacer()
+					Button(action: { clearInlineChat() }) {
+						Text("Clear")
+							.font(.system(size: 11, weight: .semibold))
+						.foregroundColor(.secondary)
+						.padding(.horizontal, 10)
+						.padding(.vertical, 6)
+						.background(.ultraThinMaterial)
+						.clipShape(Capsule())
+					}
+					.buttonStyle(.plain)
+				}
+				.padding(.top, 8)
+                // Mini conversation feed
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(Array(inlineConversation.enumerated()), id: \.offset) { _, m in
+                            HStack {
+                                if m.isUser { Spacer(minLength: 40) }
+                                ModernChatBubble(message: m)
+                                if !m.isUser { Spacer(minLength: 40) }
+                            }
+                        }
+						if inlineLoading {
+							HStack {
+								// Assistant thinking bubble with three animated dots
+								VStack(alignment: .leading) {
+									HStack {
+										LoadingDots()
+									}
+								}
+								.background(Color.white.opacity(0.08))
+								.clipShape(RoundedRectangle(cornerRadius: 12))
+                                .padding(.leading, 0)
+								Spacer()
+							}
+						}
+                    }
+                }
+				.frame(height: 150)
+
+				if showInlineChat && !inlineLoading {
+					HStack(spacing: 8) {
+						TextField("Ask a question...", text: $inlineInput)
+							.textFieldStyle(.plain)
+							.padding(.horizontal, 10)
+							.frame(height: 28)
+							.background(
+								RoundedRectangle(cornerRadius: 8)
+									.fill(.ultraThinMaterial)
+									.overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.2), lineWidth: 1))
+							)
+							.focused($inlineFocused)
+							.onSubmit { inlineSend() }
+						Button(action: { inlineSend() }) {
+							Image(systemName: "arrow.up")
+								.font(.system(size: 12, weight: .semibold))
+								.foregroundColor(.white)
+								.frame(width: 26, height: 26)
+								.background(Circle().fill(.ultraThinMaterial))
+								.clipShape(Circle())
+						}
+						.buttonStyle(.plain)
+						.disabled(inlineInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+					}
+				}
+			}
+			.padding(.horizontal, 12)
+			.padding(.bottom, 10)
+			.background(
+				RoundedRectangle(cornerRadius: 14)
+					.fill(.ultraThinMaterial)
+					.overlay(
+						RoundedRectangle(cornerRadius: 14)
+							.stroke(Color.white.opacity(0.18), lineWidth: 1)
+					)
+			)
+			.clipShape(RoundedRectangle(cornerRadius: 14))
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        }
         .onAppear {
             pulseScale = 1.05
         }
@@ -615,10 +700,23 @@ struct CompactView: View {
                     localTranscript = ""
                     // Proactive hint for first-time users to set up system audio routing
                     ResponseOverlay.shared.show(text: "🎧 Tip: For system audio (YouTube/Zoom), install BlackHole → create Multi-Output (Speakers+BlackHole) in Audio MIDI Setup → set Input to BlackHole 2ch, then Listen.")
-                    SpeechTranscriber.shared.start(onPartial: { _ in
-                        // no-op
+                    SpeechTranscriber.shared.start(onPartial: { partial in
+                        // accumulate partials lightly (only last 5 seconds worth)
+                        let p = partial.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !p.isEmpty {
+                            localTranscript = localTranscript
+                                .split(separator: "\n")
+                                .filter { !$0.hasPrefix("[partial]") }
+                                .joined(separator: "\n")
+                            localTranscript += (localTranscript.isEmpty ? "" : "\n") + "[partial] " + p
+                        }
                     }, onFinal: { finalText in
                         if finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
+                        // remove existing partial line and append final
+                        localTranscript = localTranscript
+                            .split(separator: "\n")
+                            .filter { !$0.hasPrefix("[partial]") }
+                            .joined(separator: "\n")
                         localTranscript += (localTranscript.isEmpty ? "" : "\n") + finalText
                     })
 
@@ -645,6 +743,90 @@ struct CompactView: View {
                 }
             }
         }
+    }
+
+    private func inlineSend() {
+        let text = inlineInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !inlineLoading else { return }
+        inlineLoading = true
+        let requestId = UUID()
+        inlineChatSessionId = requestId
+        inlineConversation.append(ChatMessage(content: text, isUser: true))
+        inlineInput = ""
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { showInlineChat = false }
+
+        // Detect screen intent → screenshot + analyze
+        let lower = text.lowercased()
+        // Also trigger when the immediately previous assistant asked to take a screenshot and the user replied with yes/ok
+        let lastAssistantAskedForShot = inlineConversation.last.map { !$0.isUser && $0.content.lowercased().contains("screenshot") } ?? false
+        let isAffirmative = ["yes", "ok", "okay", "sure", "do it", "go ahead", "alright"].contains(lower)
+        let needsScreenshot = (
+            lower.contains("screen") || lower.contains("screenshot") ||
+            lower.contains("what's on") || lower.contains("whats on") ||
+            lower.contains("on my screen") || lower.contains("see this") ||
+            lower.contains("see here") || lower.contains("this page") ||
+            lower.contains("this tab") || lower.contains("this slide") ||
+            lower.contains("look at") ||
+            (lastAssistantAskedForShot && isAffirmative)
+        )
+        if needsScreenshot {
+            DispatchQueue.main.async {
+                let screenshotData = ScreenshotManager.captureFullScreen(excludeWindow: ResponseOverlay.shared.panel)
+                if let data = screenshotData {
+                    ClientAPI.shared.uploadAndAnalyze(imageData: data, includeOCR: true, sessionId: SessionManager.shared.currentSessionId, customPrompt: text) { result in
+                        DispatchQueue.main.async {
+                            guard self.inlineChatSessionId == requestId else { return }
+                            inlineLoading = false
+                            switch result {
+                            case .success(let reply):
+                                inlineConversation.append(ChatMessage(content: reply, isUser: false, hasScreenshot: true))
+                            case .failure(let err):
+                                inlineConversation.append(ChatMessage(content: "❌ " + err.localizedDescription, isUser: false))
+                            }
+                            let frame = ResponseOverlay.shared.panel?.frame ?? .zero
+                            let hasFeed = !inlineConversation.isEmpty
+                            let newHeight: CGFloat = hasFeed ? 220 : 120
+                            ResponseOverlay.shared.panel?.setFrame(CGRect(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: newHeight), display: true, animate: true)
+                        }
+                    }
+                } else {
+                    // Fallback to text-only if screenshot fails
+                    self.inlineSendTextOnly(text: text, requestId: requestId)
+                }
+            }
+            return
+        }
+        // Text-only path
+        self.inlineSendTextOnly(text: text, requestId: requestId)
+    }
+
+    private func inlineSendTextOnly(text: String, requestId: UUID) {
+        ClientAPI.shared.chat(message: text, sessionId: SessionManager.shared.currentSessionId) { result in
+            DispatchQueue.main.async {
+                guard self.inlineChatSessionId == requestId else { return }
+                inlineLoading = false
+                switch result {
+                case .success(let reply):
+                    inlineConversation.append(ChatMessage(content: reply, isUser: false))
+                case .failure(let err):
+                    inlineConversation.append(ChatMessage(content: "❌ " + err.localizedDescription, isUser: false))
+                }
+                let frame = ResponseOverlay.shared.panel?.frame ?? .zero
+                let hasFeed = !inlineConversation.isEmpty
+                let newHeight: CGFloat = hasFeed ? 220 : 120
+                ResponseOverlay.shared.panel?.setFrame(CGRect(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: newHeight), display: true, animate: true)
+            }
+        }
+    }
+
+    private func clearInlineChat() {
+        inlineConversation.removeAll()
+        inlineInput = ""
+        inlineLoading = false
+        inlineChatSessionId = UUID() // invalidate any in-flight request handlers
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { showInlineChat = false }
+        let frame = ResponseOverlay.shared.panel?.frame ?? .zero
+        ResponseOverlay.shared.panel?.setFrame(CGRect(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: 120), display: true, animate: true)
     }
 }
 

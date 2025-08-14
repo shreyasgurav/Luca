@@ -43,6 +43,7 @@ final class AudioCaptureManager: NSObject {
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self else { return }
             // Feed Apple Speech with original input stream for local transcription
+            // Ensure mono 16k for recognizer if needed; otherwise pass original
             SpeechTranscriber.shared.append(buffer)
             self.handleIncoming(buffer: buffer)
         }

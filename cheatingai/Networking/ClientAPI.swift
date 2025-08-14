@@ -69,8 +69,8 @@ final class ClientAPI {
             body.appendString("\r\n")
         }
         
-        // customPrompt
-        if let customPrompt {
+        // customPrompt (store actual user question so context/memory have real text)
+        if let customPrompt, !customPrompt.isEmpty {
             body.appendString("--\(boundary)\r\n")
             body.appendString("Content-Disposition: form-data; name=\"promptContext\"\r\n\r\n")
             body.appendString(customPrompt)
@@ -85,10 +85,13 @@ final class ClientAPI {
             guard let data else { completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"]))); return }
             do {
                 let decoded = try JSONDecoder().decode(AnalyzeResponse.self, from: data)
-                
-                // Store the screenshot analysis in vector memory system
+                // Store both the user prompt and analysis so context retrieval has the right text
                 Task { @MainActor in
-                    await VectorMemoryManager.shared.storeMessage(content: "Screenshot uploaded", role: "user", type: .screenshot)
+                    if let prompt = customPrompt, !prompt.isEmpty {
+                        await VectorMemoryManager.shared.storeMessage(content: prompt, role: "user", type: .screenshot)
+                    } else {
+                        await VectorMemoryManager.shared.storeMessage(content: "Screenshot question", role: "user", type: .screenshot)
+                    }
                     await VectorMemoryManager.shared.storeMessage(content: decoded.assistant_text, role: "assistant", type: .analysis)
                 }
                 
@@ -224,6 +227,34 @@ final class ClientAPI {
                 }
             }.resume()
         }
+    }
+
+    // Lightweight chat for inline overlay input: skips heavy context fetch and memory extraction
+    func chatLite(message: String, sessionId: String?, completion: @escaping (Result<String, Error>) -> Void) {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/api/chat"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Include lightweight capability-aware context header so server can merge with system policy
+        let body: [String: Any] = [
+            "message": message,
+            "sessionId": sessionId ?? "",
+            "promptContext": "Relevant Context:\nCapabilities: Screen screenshot+OCR; Gmail if connected; Places search; Session transcripts; Memory."
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            if let error { completion(.failure(error)); return }
+            guard let data else {
+                completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"])))
+                return
+            }
+            do {
+                let decoded = try JSONDecoder().decode(AnalyzeResponse.self, from: data)
+                completion(.success(decoded.assistant_text))
+            } catch {
+                completion(.failure(error))
+            }
+        }.resume()
     }
 
     // MARK: - Listen API

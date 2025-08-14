@@ -32,6 +32,10 @@ final class SpeechTranscriber: NSObject {
 
             let req = SFSpeechAudioBufferRecognitionRequest()
             req.shouldReportPartialResults = true
+            if #available(macOS 12.0, *) {
+                req.requiresOnDeviceRecognition = false
+                req.taskHint = .dictation
+            }
             self.request = req
 
             self.isRunning = true
@@ -41,6 +45,7 @@ final class SpeechTranscriber: NSObject {
                     if result.isFinal {
                         onFinal(text)
                     } else {
+                        // Stream partials for live feedback
                         onPartial(text)
                     }
                 }
