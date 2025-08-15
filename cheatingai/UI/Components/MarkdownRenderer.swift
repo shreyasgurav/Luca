@@ -3,11 +3,9 @@ import AppKit
 
 struct MarkdownRendererView: View {
     let text: String
-    let enableCopyButtons: Bool
 
-    init(text: String, enableCopyButtons: Bool = true) {
+    init(text: String) {
         self.text = text
-        self.enableCopyButtons = enableCopyButtons
     }
 
     var body: some View {
@@ -16,7 +14,7 @@ struct MarkdownRendererView: View {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .code(let language, let code):
-                    CodeBlockView(code: code, language: language, showCopy: enableCopyButtons)
+                    CodeBlockView(code: code, language: language)
                 case .text(let md):
                     MarkdownTextView(markdown: md)
                 }
@@ -99,7 +97,6 @@ private struct MarkdownTextView: View {
 struct CodeBlockView: View {
     let code: String
     let language: String?
-    var showCopy: Bool = true
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -114,36 +111,20 @@ struct CodeBlockView: View {
             }
             .frame(maxHeight: 200)
 
-            if showCopy {
-                HStack(spacing: 6) {
-                    if let language, !language.isEmpty {
-                        Text(language.uppercased())
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.7))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.white.opacity(0.12))
-                            .clipShape(Capsule())
-                    }
-                    Button(action: copyToClipboard) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.white)
-                            .padding(8)
-                            .background(Color.white.opacity(0.15))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(8)
+            if let language, !language.isEmpty {
+                Text(language.uppercased())
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.7))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Capsule())
+                    .padding(8)
             }
         }
     }
 
-    private func copyToClipboard() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(code, forType: .string)
-    }
+
 }
 
 

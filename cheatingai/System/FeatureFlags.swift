@@ -5,7 +5,7 @@ enum FeatureFlags {
     static let screenshotRouteEnabled: Bool = true
     static let ocrEnabled: Bool = true
     static let streamingSTTEnabled: Bool = false
-    static let gmailEnabled: Bool = true
+
     static let placesEnabled: Bool = true
     static let memoryExtractEnabled: Bool = true
 }

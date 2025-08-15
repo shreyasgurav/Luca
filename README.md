@@ -34,7 +34,7 @@ Nova stands for “Neural Omni-View Assistant”.
 ### Highlights
 - Multimodal: screenshot capture + vision analysis + optional OCR
 - Smart memory: vector embeddings, semantic retrieval, session context, decay/dedupe
-- Real integrations: email Q&A via Gmail, nearby search via Google Places
+- Real integrations: nearby search via Google Places
 - Desktop-native UX: floating overlay, compact/expanded chat, selection capture
 
 ---
@@ -79,7 +79,7 @@ npm start
 - Session-aware context construction with token budgeting and decay system
 
 ### Integrations
-- Gmail: OAuth flow, list recent emails, and answer questions grounded only in your inbox
+
 - Places: Nearby search with distance and deep links to Maps
 
 ---
@@ -95,7 +95,7 @@ npm start
   - Chat/images: forwards prompts and screenshots to OpenAI
   - Embeddings: generates normalized embeddings (with a mock fallback for offline/dev)
   - Memory extraction: LLM-assisted JSON extraction with robust fallback heuristics
-  - Gmail integration: OAuth + read-only queries grounded in email content
+  
   - Places search: Google Places Text Search with location bias
 
 ---
@@ -106,8 +106,7 @@ npm start
 - POST `/api/chat` — chat with optional `promptContext` and `sessionId`
 - POST `/api/memory/extract` — extract structured memories from content
 - POST `/api/embedding` — generate numeric embedding for text
-- GET  `/api/gmail/status|auth|callback|emails` — Gmail status and email access
-- POST `/api/gmail/query` — answer a question using recent emails only
+
 - GET  `/api/places/search` — text search (query, lat, lng, radius, open_now)
 
 ---
@@ -117,7 +116,7 @@ npm start
 OpenAI and integrations are configured in `Server/config.js` (copied from `config.production.js`). Set:
 - `OPENAI_API_KEY`, `OPENAI_MODEL`
 - Optional storage (S3/R2)
-- Gmail OAuth: client id/secret/redirect
+
 - Google Places API key
 
 Tip: Prefer environment variables or a local, untracked config. Don’t commit real keys.

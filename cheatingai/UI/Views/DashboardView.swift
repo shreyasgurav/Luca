@@ -612,15 +612,7 @@ struct DashboardView: View {
             }
             .padding(.horizontal, 4)
 
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Gmail Integration")
-                        .font(.headline)
-                        .fontWeight(.medium)
-                    GmailIntegrationView()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+
             Spacer()
         }
         .padding()

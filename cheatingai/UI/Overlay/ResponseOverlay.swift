@@ -285,30 +285,6 @@ struct ResponsePanel: View {
     }
     
     private func sendTextOnlyMessage(_ messageText: String) {
-        // If message appears to be about email, try Gmail route first
-        if isEmailIntent(messageText) {
-            ClientAPI.shared.gmailStatus { statusResult in
-                switch statusResult {
-                case .success(let status) where status.connected:
-                    ClientAPI.shared.gmailQuery(question: messageText, maxEmails: 10) { queryResult in
-                        DispatchQueue.main.async {
-                            self.isLoading = false
-                            switch queryResult {
-                            case .success(let resp):
-                                self.conversation.append(ChatMessage(content: resp.answer, isUser: false))
-                            case .failure:
-                                // Fallback to normal chat if Gmail query fails
-                                self.fallbackChat(messageText)
-                            }
-                        }
-                    }
-                default:
-                    // Not connected → normal chat
-                    self.fallbackChat(messageText)
-                }
-            }
-            return
-        }
 
         // If message appears to be a nearby/open-now intent and we have location, call places
         if isNearbyIntent(messageText), let coord = LocationManager.shared.lastCoordinate {
@@ -353,15 +329,7 @@ struct ResponsePanel: View {
         }
     }
 
-    private func isEmailIntent(_ text: String) -> Bool {
-        let t = text.lowercased()
-        let indicators = [
-            "email", "gmail", "inbox", "mail", "message",
-            "check my", "in my email", "from my email", "what did", "what is the date",
-            "invite", "calendar", "hackathon", "meeting", "ticket",
-        ]
-        return indicators.contains { t.contains($0) }
-    }
+
 
     private func fallbackChat(_ messageText: String) {
         let threadContext = ConversationManager.shared.recentThreadContext()
@@ -628,6 +596,23 @@ struct CompactView: View {
         }
         .onAppear {
             pulseScale = 1.05
+            
+            // Listen for ask question and clear chat triggers from global shortcuts
+            NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("ExecuteAskQuestion"),
+                object: nil,
+                queue: .main
+            ) { _ in
+                self.triggerAskQuestionProgrammatically()
+            }
+            
+            NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("ExecuteClearChat"),
+                object: nil,
+                queue: .main
+            ) { _ in
+                self.triggerClearChatProgrammatically()
+            }
         }
 		// Timer now appears inside the Listen capsule; removed floating overlay
     }
@@ -652,7 +637,8 @@ struct CompactView: View {
 							let localHasText = !localTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 							let savedChunks = (obj["stats"] as? [String: Any])? ["chunks"] as? Int ?? 0
 							if localHasText {
-								SessionTranscriptStore.shared.saveTranscript(sessionId: sid, transcript: localTranscript)
+								// Add the transcript to the current session
+								SessionTranscriptStore.shared.addFinalTranscript(localTranscript)
 								ResponseOverlay.shared.show(text: "📝 Session saved (\(savedChunks) chunks). Using on-device transcript (\(localTranscript.count) chars)")
 							} else if serverIsMock {
 								let placeholder = """
@@ -663,10 +649,10 @@ struct CompactView: View {
 								3) System Settings → Sound → Output: Multi‑Output, Input: BlackHole 2ch
 								Then press Listen again.
 								"""
-								SessionTranscriptStore.shared.saveTranscript(sessionId: sid, transcript: placeholder)
+								SessionTranscriptStore.shared.addFinalTranscript(placeholder)
 								ResponseOverlay.shared.show(text: "📝 Session saved (placeholder). Configure Multi‑Output + BlackHole to capture system audio.")
 							} else {
-								SessionTranscriptStore.shared.saveTranscript(sessionId: sid, transcript: serverTranscript)
+								SessionTranscriptStore.shared.addFinalTranscript(serverTranscript)
 								ResponseOverlay.shared.show(text: "📝 Session saved (\(savedChunks) chunks).")
 							}
 						} else {
@@ -674,7 +660,7 @@ struct CompactView: View {
 							let sid = listeningSessionId.isEmpty ? UUID().uuidString : listeningSessionId
 							let localText = localTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
 							if !localText.isEmpty {
-								SessionTranscriptStore.shared.saveTranscript(sessionId: sid, transcript: localText)
+								SessionTranscriptStore.shared.addFinalTranscript(localText)
 								ResponseOverlay.shared.show(text: "📝 Session saved.")
 							} else {
 								let placeholder = """
@@ -685,7 +671,7 @@ struct CompactView: View {
 								3) System Settings → Sound → Output: Multi‑Output, Input: BlackHole 2ch
 								Then press Listen again.
 								"""
-								SessionTranscriptStore.shared.saveTranscript(sessionId: sid, transcript: placeholder)
+								SessionTranscriptStore.shared.addFinalTranscript(placeholder)
 								ResponseOverlay.shared.show(text: "📝 Session saved (placeholder). Configure Multi‑Output + BlackHole to capture system audio.")
 							}
 						}
@@ -791,8 +777,7 @@ struct CompactView: View {
                     self.inlineSendTextOnly(text: prompt, requestId: requestId)
                 }
             }
-        case .gmail(let question):
-            self.inlineSendTextOnly(text: question, requestId: requestId)
+
         case .places(let query):
             self.inlineSendTextOnly(text: query, requestId: requestId)
         case .plainChat(let message):
@@ -815,6 +800,11 @@ struct CompactView: View {
                 let hasFeed = !inlineConversation.isEmpty
                 let newHeight: CGFloat = hasFeed ? 220 : 120
                 ResponseOverlay.shared.panel?.setFrame(CGRect(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: newHeight), display: true, animate: true)
+                
+                // Auto-refocus input after response
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    inlineFocused = true
+                }
             }
         }
     }
@@ -982,55 +972,32 @@ struct ExpandedChatView: View {
 
 struct ModernChatBubble: View {
     let message: ChatMessage
-    @State private var showCopyButton: Bool = false
     
     var body: some View {
-                HStack {
-                    if message.isUser { Spacer(minLength: 50) }
-                    
-                    VStack(alignment: message.isUser ? .trailing : .leading, spacing: 4) {
-                        HStack(alignment: .top) {
-                            Group {
-                                if message.isUser {
-                                    Text(message.content)
-                                        .font(.system(size: 14))
-                                } else {
-                                    MarkdownRendererView(text: message.content)
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .background(
-                                message.isUser ?
-                                AnyShapeStyle(LinearGradient(colors: [.blue.opacity(0.8), .cyan.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)) :
-                                AnyShapeStyle(Color.white.opacity(0.1))
-                            )
-                            .foregroundColor(message.isUser ? .white : .primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                            .textSelection(.enabled)
-                            .onHover { hovering in
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    showCopyButton = hovering && !message.isUser
-                                }
-                            }
-                            
-                            if !message.isUser {
-                                Button(action: {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(message.content, forType: .string)
-                                }) {
-                                    Image(systemName: "doc.on.doc")
-                                        .foregroundColor(.secondary)
-                                        .font(.system(size: 12))
-                                        .frame(width: 20, height: 20)
-                                        .background(.ultraThinMaterial)
-                                        .clipShape(Circle())
-                                        .opacity(showCopyButton ? 1.0 : 0.0)
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!showCopyButton)
-                            }
+        HStack {
+            if message.isUser { Spacer(minLength: 50) }
+            
+            VStack(alignment: message.isUser ? .trailing : .leading, spacing: 4) {
+                HStack(alignment: .top) {
+                    Group {
+                        if message.isUser {
+                            Text(message.content)
+                                .font(.system(size: 14))
+                        } else {
+                            MarkdownRendererView(text: message.content)
                         }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(
+                        message.isUser ?
+                        AnyShapeStyle(LinearGradient(colors: [.blue.opacity(0.8), .cyan.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)) :
+                        AnyShapeStyle(Color.black.opacity(0.8))
+                    )
+                    .foregroundColor(message.isUser ? .white : .white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .textSelection(.enabled)
+                }
                 
                 HStack(spacing: 4) {
                     if message.hasScreenshot {
@@ -1060,7 +1027,7 @@ struct LoadingDots: View {
         HStack(spacing: 4) {
             ForEach(0..<3) { index in
                 Circle()
-                    .fill(Color.white.opacity(0.6))
+                    .fill(Color.white)
                     .frame(width: 6, height: 6)
                     .scaleEffect(animateScale ? 1.2 : 0.8)
                     .animation(
@@ -1072,14 +1039,64 @@ struct LoadingDots: View {
             }
             Text("")
                 .font(.system(size: 12))
-                .foregroundColor(.secondary)
+                .foregroundColor(.white)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Color.white.opacity(0.1))
+        .background(Color.black)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .onAppear {
             animateScale = true
         }
+    }
+}
+
+// MARK: - ResponsePanel Extensions
+extension ResponsePanel {
+    mutating func forceShowInlineChat() {
+        // Ensure we're in compact mode and show inline chat
+        isExpanded = false
+        
+        // Trigger the ask question functionality directly
+        // Since we can't easily access the CompactView, we'll use a different approach
+        // We'll set a flag that the CompactView can check
+        // For now, let's just ensure the panel is visible and focused
+        ResponseOverlay.shared.panel?.makeKey()
+    }
+}
+
+// MARK: - CompactView Extensions
+extension CompactView {
+    func triggerAskQuestionProgrammatically() {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            showInlineChat = true
+            let frame = ResponseOverlay.shared.panel?.frame ?? .zero
+            let newHeight: CGFloat = 300
+            ResponseOverlay.shared.panel?.setFrame(
+                CGRect(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: newHeight),
+                display: true,
+                animate: true
+            )
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            inlineFocused = true
+            ResponseOverlay.shared.panel?.makeKey()
+        }
+    }
+    
+    func triggerClearChatProgrammatically() {
+        // Clear the conversation
+        inlineConversation.removeAll()
+        
+        // Hide the inline chat
+        showInlineChat = false
+        
+        // Reset the panel to compact size
+        let frame = ResponseOverlay.shared.panel?.frame ?? .zero
+        ResponseOverlay.shared.panel?.setFrame(
+            CGRect(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: 140),
+            display: true,
+            animate: true
+        )
     }
 }

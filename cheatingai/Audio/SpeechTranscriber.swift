@@ -43,9 +43,11 @@ final class SpeechTranscriber: NSObject {
                 if let result = result {
                     let text = result.bestTranscription.formattedString
                     if result.isFinal {
+                        // Store final transcript in the transcript store
+                        SessionTranscriptStore.shared.addLocalTranscript(text, confidence: 1.0)
                         onFinal(text)
                     } else {
-                        // Stream partials for live feedback
+                        // Stream partials for live feedback (don't store partials to avoid duplicates)
                         onPartial(text)
                     }
                 }

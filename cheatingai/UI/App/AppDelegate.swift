@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         setupStatusItem()
         setupGlobalHotKey()
+        setupCommandReturnListener()
 
         // Pre-warm selection controller
         selectionController = SelectionController()
@@ -72,6 +73,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.toggleResponseOverlay()
         }
         globalHotKey?.register()
+    }
+    
+    private func setupCommandReturnListener() {
+        // Listen for Command+Return and Command+Delete anywhere in the app
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.modifierFlags.contains(.command) {
+                switch event.keyCode {
+                case 36: // Return key
+                    self?.triggerAskQuestion()
+                    return nil
+                case 51: // Delete key
+                    self?.triggerClearChat()
+                    return nil
+                default:
+                    break
+                }
+            }
+            return event
+        }
+        
+        // Set up global notification listeners that are always active
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("TriggerAskQuestion"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleAskQuestionNotification()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("TriggerClearChat"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleClearChatNotification()
+        }
+    }
+    
+    private func triggerAskQuestion() {
+        // Post a notification that the ask question button should be triggered
+        NotificationCenter.default.post(name: NSNotification.Name("TriggerAskQuestion"), object: nil)
+    }
+    
+    private func triggerClearChat() {
+        // Post a notification that the clear chat button should be triggered
+        NotificationCenter.default.post(name: NSNotification.Name("TriggerClearChat"), object: nil)
+    }
+    
+    private func handleAskQuestionNotification() {
+        // If panel not shown, show it first
+        if ResponseOverlay.shared.panel == nil || !ResponseOverlay.shared.panel!.isVisible {
+            ResponseOverlay.shared.show()
+            
+            // Wait a bit for the panel to be created and visible, then trigger ask question
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.triggerAskQuestionInPanel()
+            }
+        } else {
+            // Panel is already visible, trigger ask question immediately
+            triggerAskQuestionInPanel()
+        }
+    }
+    
+    private func triggerAskQuestionInPanel() {
+        // Find the CompactView and trigger ask question
+        if let panel = ResponseOverlay.shared.panel,
+           let hostingController = panel.contentViewController as? NSHostingController<ResponsePanel> {
+            
+            // Access the CompactView through the hosting controller
+            // We need to find a way to trigger the ask question functionality
+            // For now, let's just ensure the panel is focused
+            panel.makeKey()
+            
+            // Post another notification that the view should listen for
+            NotificationCenter.default.post(name: NSNotification.Name("ExecuteAskQuestion"), object: nil)
+        }
+    }
+    
+    private func handleClearChatNotification() {
+        // If panel not shown, nothing to clear
+        guard ResponseOverlay.shared.panel != nil && ResponseOverlay.shared.panel!.isVisible else {
+            return
+        }
+        
+        // Post notification to execute clear chat
+        NotificationCenter.default.post(name: NSNotification.Name("ExecuteClearChat"), object: nil)
     }
     
     private func setupToggleOverlayHotKey() {

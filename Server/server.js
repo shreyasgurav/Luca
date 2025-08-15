@@ -4,7 +4,7 @@ const analyze = require('./functions/analyze');
 const chat = require('./functions/chat');
 const memory = require('./functions/memory');
 const embedding = require('./functions/embedding');
-const gmail = require('./functions/gmail');
+
 const places = require('./functions/places');
 const listen = require('./functions/listen');
 
@@ -34,7 +34,7 @@ const server = http.createServer((req, res) => {
   if (req.url === '/api/chat') return chat(req, res);
   if (req.url === '/api/memory/extract') return memory(req, res);
   if (req.url === '/api/embedding') return embedding(req, res);
-  if (req.url.startsWith('/api/gmail')) return gmail(req, res);
+  
   if (req.url.startsWith('/api/places')) return places(req, res);
   if (req.url.startsWith('/api/listen')) return listen(req, res);
   if (req.url === '/api/test') {
