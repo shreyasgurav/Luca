@@ -35,6 +35,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Start location updates (with user consent)
         LocationManager.shared.start()
+        
+        // Migrate existing transcripts to user's Documents folder
+        Task {
+            await SessionTranscriptStore.shared.migrateExistingTranscripts()
+        }
 
         // Let AuthenticationManager handle all UI state changes
         // It will automatically show appropriate windows based on auth state
@@ -42,6 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         globalHotKey?.unregister()
+        
+        // Force cleanup audio capture and screen recording
+        AudioCaptureManager.shared.forceCleanup()
     }
 
     private func setupStatusItem() {

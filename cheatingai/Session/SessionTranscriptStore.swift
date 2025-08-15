@@ -52,14 +52,35 @@ final class SessionTranscriptStore {
     
     // MARK: - Directory Setup
     private func getTranscriptsDirectory() throws -> URL {
-        let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let transcriptsPath = documentsPath.appendingPathComponent(transcriptsDirectory)
+        // Use the user's actual Documents directory, not the app bundle
+        // First try the user's Documents folder directly
+        let userDocumentsPath = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
+        let transcriptsPath = userDocumentsPath.appendingPathComponent(transcriptsDirectory)
         
-        if !fileManager.fileExists(atPath: transcriptsPath.path) {
-            try fileManager.createDirectory(at: transcriptsPath, withIntermediateDirectories: true)
+        // Check if we can write to the user's Documents folder
+        if fileManager.isWritableFile(atPath: userDocumentsPath.path) {
+            if !fileManager.fileExists(atPath: transcriptsPath.path) {
+                try fileManager.createDirectory(at: transcriptsPath, withIntermediateDirectories: true)
+                print("📁 Created transcripts directory at: \(transcriptsPath.path)")
+            } else {
+                print("📁 Using existing transcripts directory at: \(transcriptsPath.path)")
+            }
+            return transcriptsPath
+        } else {
+            // Fallback to app's Documents directory if user's Documents is not writable
+            let appDocumentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let fallbackPath = appDocumentsPath.appendingPathComponent(transcriptsDirectory)
+            
+            if !fileManager.fileExists(atPath: fallbackPath.path) {
+                try fileManager.createDirectory(at: fallbackPath, withIntermediateDirectories: true)
+                print("📁 Created fallback transcripts directory at: \(fallbackPath.path)")
+            } else {
+                print("📁 Using fallback transcripts directory at: \(fallbackPath.path)")
+            }
+            
+            print("⚠️ Using fallback directory - user's Documents folder is not writable")
+            return fallbackPath
         }
-        
-        return transcriptsPath
     }
     
     // MARK: - Session Lifecycle
@@ -97,17 +118,24 @@ final class SessionTranscriptStore {
     }
     
     func finishSession() async -> URL? {
+        print("🔍 DEBUG: finishSession called with \(transcriptSegments.count) segments")
+        
         guard var session = currentSessionTranscript else {
             print("⚠️ No current session to finish")
             return nil
         }
         
+        print("🔍 DEBUG: Current session: \(session.sessionId), started at: \(session.startTime)")
+        
         session.endTime = Date()
         session.segments = transcriptSegments
+        
+        print("🔍 DEBUG: About to save session with \(session.segments.count) segments")
         
         do {
             let savedURL = try await saveSessionTranscript(session)
             print("✅ Session transcript saved: \(savedURL.lastPathComponent)")
+            print("✅ Full path: \(savedURL.path)")
             
             // Clean up
             currentSessionTranscript = nil
@@ -116,17 +144,36 @@ final class SessionTranscriptStore {
             return savedURL
         } catch {
             print("❌ Failed to save session transcript: \(error)")
+            print("❌ Error details: \(error.localizedDescription)")
             return nil
         }
     }
     
     // MARK: - File Operations
     private func saveSessionTranscript(_ session: SessionTranscript) async throws -> URL {
+        print("🔍 DEBUG: saveSessionTranscript called for session: \(session.sessionId)")
+        
         let transcriptsDir = try getTranscriptsDirectory()
+        print("🔍 DEBUG: Transcripts directory: \(transcriptsDir.path)")
+        
         let fileURL = transcriptsDir.appendingPathComponent(session.fileName)
+        print("🔍 DEBUG: File will be saved to: \(fileURL.path)")
         
         let content = generateTranscriptContent(for: session)
+        print("🔍 DEBUG: Generated content length: \(content.count) characters")
+        print("🔍 DEBUG: Content preview: \(content.prefix(200))...")
+        
         try content.write(to: fileURL, atomically: true, encoding: .utf8)
+        print("🔍 DEBUG: File written successfully")
+        
+        // Verify the file was created
+        if fileManager.fileExists(atPath: fileURL.path) {
+            let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
+            let fileSize = attributes[.size] as? Int ?? 0
+            print("🔍 DEBUG: File verified - size: \(fileSize) bytes")
+        } else {
+            print("❌ DEBUG: File was not created!")
+        }
         
         return fileURL
     }
@@ -184,6 +231,45 @@ final class SessionTranscriptStore {
             .sorted { $0.lastPathComponent > $1.lastPathComponent } // Most recent first
     }
     
+    // MARK: - Migration and Cleanup
+    func migrateExistingTranscripts() async {
+        print("🔄 Attempting to migrate existing transcripts...")
+        
+        // Get the sandboxed transcripts directory
+        let sandboxDocuments = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let sandboxTranscriptsPath = sandboxDocuments.appendingPathComponent(transcriptsDirectory)
+        
+        guard fileManager.fileExists(atPath: sandboxTranscriptsPath.path) else {
+            print("📁 No existing transcripts to migrate")
+            return
+        }
+        
+        do {
+            let targetDir = try getTranscriptsDirectory()
+            let existingFiles = try fileManager.contentsOfDirectory(at: sandboxTranscriptsPath, includingPropertiesForKeys: nil)
+                .filter { $0.pathExtension == "txt" }
+            
+            print("📁 Found \(existingFiles.count) existing transcripts to migrate")
+            
+            for fileURL in existingFiles {
+                let fileName = fileURL.lastPathComponent
+                let targetURL = targetDir.appendingPathComponent(fileName)
+                
+                // Only copy if target doesn't exist
+                if !fileManager.fileExists(atPath: targetURL.path) {
+                    try fileManager.copyItem(at: fileURL, to: targetURL)
+                    print("✅ Migrated: \(fileName)")
+                } else {
+                    print("⏭️ Skipped (already exists): \(fileName)")
+                }
+            }
+            
+            print("✅ Migration completed successfully")
+        } catch {
+            print("❌ Migration failed: \(error)")
+        }
+    }
+    
     func deleteTranscript(at url: URL) throws {
         try fileManager.removeItem(at: url)
         print("🗑️ Deleted transcript: \(url.lastPathComponent)")
@@ -195,6 +281,15 @@ final class SessionTranscriptStore {
             segmentCount: transcriptSegments.count,
             isActive: currentSessionTranscript != nil
         )
+    }
+    
+    func getCurrentSaveLocation() -> String {
+        do {
+            let transcriptsDir = try getTranscriptsDirectory()
+            return transcriptsDir.path
+        } catch {
+            return "Error: \(error.localizedDescription)"
+        }
     }
 }
 

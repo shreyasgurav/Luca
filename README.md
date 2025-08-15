@@ -1,41 +1,29 @@
-Nova — System Audio Transcription Setup (BlackHole)
-
-Quick steps on macOS for recording YouTube/Zoom/system audio:
-
-1) Install BlackHole (2ch)
-   - Download from: https://github.com/ExistentialAudio/BlackHole
-   - Run the installer and allow the security prompts
-
-2) Create a Multi-Output device
-   - Open “Audio MIDI Setup” (Utilities)
-   - Press + at bottom-left → Create Multi-Output Device
-   - Check your Speakers (or Headphones) and BlackHole 2ch
-   - Set the Master Device to your real output (e.g., MacBook Speakers)
-
-3) Route macOS Sound
-   - System Settings → Sound → Output: Multi-Output Device
-   - System Settings → Sound → Input: BlackHole 2ch
-
-4) Use Nova
-   - Click Listen, then play the system audio (YouTube, Zoom)
-   - Nova will detect audio and transcribe in real time (local) and save the session text
-
-Troubleshooting
-- If transcript is empty or shows “mock transcript”, Input likely wasn’t BlackHole 2ch.
-- If you hear no audio, uncheck “Drift Correction” on your Multi-Output except for the secondary device.
-- Reopen Audio MIDI Setup if devices don’t appear; reselect in System Settings.
-
-## Nova — Neural Omni-View Assistant
+# Nova — Neural Omni-View Assistant
 
 An on-device macOS assistant that sees your screen, understands context, and helps across tasks. Nova captures, analyzes, chats, and remembers—combining multimodal AI with a refined desktop UX.
 
-Nova stands for “Neural Omni-View Assistant”.
+Nova stands for "Neural Omni-View Assistant".
 
-### Highlights
-- Multimodal: screenshot capture + vision analysis + optional OCR
-- Smart memory: vector embeddings, semantic retrieval, session context, decay/dedupe
-- Real integrations: nearby search via Google Places
-- Desktop-native UX: floating overlay, compact/expanded chat, selection capture
+## 🎯 Professional Audio Capture
+
+Nova uses **Screen Recording permission** to capture system audio (YouTube, Zoom, music, etc.) automatically. This is the same approach used by professional apps like Clueify.
+
+### ✅ Zero Configuration Required
+- **No external drivers** like BlackHole
+- **No Audio MIDI Setup** configuration
+- **No manual audio routing** changes
+- **Just grant Screen Recording permission** and start using!
+
+### 🔒 Permission Setup (One-time)
+1. **First time you use Nova**, it will request Screen Recording permission
+2. **Go to System Settings** → **Privacy & Security** → **Screen Recording**
+3. **Enable permission for Nova**
+4. **Restart Nova** and start listening!
+
+### 🎧 What Gets Captured
+- **System audio**: YouTube, Zoom, Spotify, any app audio
+- **Screen content**: For context and analysis
+- **Microphone**: If you speak while recording
 
 ---
 
@@ -55,32 +43,34 @@ npm start
 - Build and run the macOS target
 - Ensure the server is running on port 3000
 
-3) Use Nova
-- Click the floating overlay to ask a question
-- Use the selection tool to capture part of the screen, or ask about “what’s on my screen” to auto-capture
-
----
-
 ## Features
 
-### Screen understanding
-- Selection overlay with pixel-accurate crop and toolbar actions (Send/Copy/Cancel)
-- Full-screen capture that safely excludes Nova’s own UI from being captured
-- Vision-based OCR optional path when needed
+### Highlights
+- **Multimodal**: screenshot capture + vision analysis + optional OCR
+- **Smart memory**: vector embeddings, semantic retrieval, session context, decay/dedupe
+- **Real integrations**: nearby search via Google Places
+- **Desktop-native UX**: floating overlay, compact/expanded chat, selection capture
+- **Professional audio**: system audio capture via Screen Recording (no setup required)
 
-### Chat with context
-- Conversational interface with compact and expanded modes
-- Ambient context (local time, location where permitted)
-- Response streaming-ready API design
+### Audio Capture
+- **Automatic system audio detection** via Screen Recording permission
+- **Real-time transcription** using Apple Speech and OpenAI Whisper
+- **Voice Activity Detection** for intelligent audio chunking
+- **Audio quality validation** and preprocessing
+- **Session-based storage** with local file management
 
-### Memory and retrieval
-- Vector memory with embeddings generated via server endpoint
-- Semantic search with composite scoring (cosine similarity + importance + recency + keyword boosts)
-- Session-aware context construction with token budgeting and decay system
+### Memory System
+- **Vector embeddings** for semantic search
+- **Context-aware retrieval** based on current session
+- **Automatic decay** and deduplication
+- **Persistent storage** across app sessions
 
-### Integrations
-
-- Places: Nearby search with distance and deep links to Maps
+### UI/UX
+- **Floating overlay** that stays on top
+- **Compact/expanded chat** modes
+- **Global keyboard shortcuts** (Cmd+Return, Cmd+Delete)
+- **Modern chat interface** with dark themes
+- **Responsive design** that adapts to content
 
 ---
 

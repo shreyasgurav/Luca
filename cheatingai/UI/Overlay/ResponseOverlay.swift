@@ -692,8 +692,8 @@ struct CompactView: View {
                     startTime = Date()
                     // Start mic capture and parallel on-device streaming transcription for real-time text
                     localTranscript = ""
-                    // Proactive hint for first-time users to set up system audio routing
-                    ResponseOverlay.shared.show(text: "🎧 Tip: For system audio (YouTube/Zoom), install BlackHole → create Multi-Output (Speakers+BlackHole) in Audio MIDI Setup → set Input to BlackHole 2ch, then Listen.")
+                    // Professional approach: Screen Recording permission handles system audio automatically
+                    ResponseOverlay.shared.show(text: "🎧 Professional Audio Capture Enabled\n\nSystem audio (YouTube, Zoom, etc.) will be captured automatically via Screen Recording permission.\n\nNo external drivers or manual setup required!")
                     SpeechTranscriber.shared.start(onPartial: { partial in
                         // accumulate partials lightly (only last 5 seconds worth)
                         let p = partial.trimmingCharacters(in: .whitespacesAndNewlines)

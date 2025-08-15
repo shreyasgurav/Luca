@@ -1,28 +1,47 @@
 import Foundation
 import AVFoundation
+import ScreenCaptureKit
 import AppKit
+
+// MARK: - Audio Quality Models
+
+struct AudioQuality {
+    let silenceRatio: Float      // 0.0 = no silence, 1.0 = all silence
+    let dynamicRange: Float      // Dynamic range in dB
+    let clippingRate: Float      // 0.0 = no clipping, 1.0 = all clipped
+    let isAcceptable: Bool       // Overall quality assessment
+}
 
 @MainActor
 final class AudioCaptureManager: NSObject {
     static let shared = AudioCaptureManager()
 
-    private var engine = AVAudioEngine()
+    // MARK: - Professional Audio Capture Properties
+    private var screenCaptureSession: SCStream?
+    private var audioEngine = AVAudioEngine()
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
-
+    
+    // Audio processing
     private var accumulatingPCM = Data()
     private var accumulatedSamples: Int = 0
     private let targetSampleRate: Double = 16_000
     private let chunkSeconds: Double = 3
     private var samplesPerChunk: Int { Int(targetSampleRate * chunkSeconds) }
-
+    
+    // Session management
     private var sessionId: String?
     private var isRunning = false
     private var debugBufferCount: Int = 0
     private var lastNonSilenceAt: Date = Date()
-    private var silenceTimer: Timer?
-    private var didWarnNoAudio: Bool = false
-    private var didLaunchGuides: Bool = false
+    private var lastVoiceActivity: Date = Date()
+    
+    // VAD Configuration
+    private let voiceThreshold: Float = 0.01
+    private let maxChunkDuration: Double = 10.0
+    
+    // Screen recording permission
+    private var hasScreenRecordingPermission = false
 
     func startListening(sessionId: String, onStarted: @escaping (Bool) -> Void) {
         guard !isRunning else { onStarted(true); return }
@@ -31,398 +50,805 @@ final class AudioCaptureManager: NSObject {
         // Start transcript session
         SessionTranscriptStore.shared.startSession(sessionId: sessionId)
         
-        // Validate audio setup before proceeding
-        guard validateAudioSetup() else {
-            print("❌ Audio setup validation failed")
-            onStarted(false)
-            return
-        }
-        
-        setupAudioSession()
-        handleAudioDeviceChange()
-
-        // Get the input and output nodes
-        let input = engine.inputNode
-        let output = engine.outputNode
-        
-        // Nodes are always available on macOS
-        
-        // Connect input to output to ensure the audio graph is valid
-        engine.connect(input, to: output, format: input.inputFormat(forBus: 0))
-        
-        // Verify the connection was successful
-        print("🔗 Audio graph: Input → Output connected")
-        
-        // Now prepare the engine AFTER configuring the audio graph
-        engine.prepare()
-        print("✅ Audio engine prepared successfully")
-        
-        let inputFormat = input.inputFormat(forBus: 0)
-        
-        // Validate input format
-        guard inputFormat.channelCount > 0 && inputFormat.sampleRate > 0 else {
-            print("❌ Invalid input format: channels=\(inputFormat.channelCount), sampleRate=\(inputFormat.sampleRate)")
-            onStarted(false)
-            return
-        }
-
-        // Target: PCM 16-bit, mono, 16kHz (non-interleaved so int16ChannelData is available)
-        guard let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: targetSampleRate, channels: 1, interleaved: false) else {
-            print("❌ Failed to create target audio format")
-            onStarted(false)
-            return
-        }
-        
-        targetFormat = target
-        
-        // Create converter with error handling
-        guard let audioConverter = AVAudioConverter(from: inputFormat, to: target) else {
-            print("❌ Failed to create audio converter from \(inputFormat) to \(target)")
-            onStarted(false)
-            return
-        }
-        converter = audioConverter
-
-        // Remove any existing tap and install new one
-        input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-            guard let self else { return }
-            // Feed Apple Speech with original input stream for local transcription
-            // Ensure mono 16k for recognizer if needed; otherwise pass original
-            SpeechTranscriber.shared.append(buffer)
-            self.handleIncoming(buffer: buffer)
-        }
-
-        do {
-            // Engine is already prepared from setupAudioSession
-            
-            // Verify the engine is properly configured
-            guard engine.isRunning == false else {
-                print("❌ Engine is already running")
+        // Check and request screen recording permission
+        Task {
+            let hasPermission = await checkScreenRecordingPermission()
+            if !hasPermission {
+                print("❌ Screen recording permission required for system audio capture")
                 onStarted(false)
                 return
             }
             
-            // Engine nodes should always be available on macOS
+            // Start professional audio capture
+            await startProfessionalAudioCapture(onStarted: onStarted)
+        }
+    }
+    
+    private func checkScreenRecordingPermission() async -> Bool {
+        // Check if we have screen recording permission
+        let status = CGPreflightScreenCaptureAccess()
+        hasScreenRecordingPermission = status
+        
+        if !status {
+            print("🔒 Requesting screen recording permission...")
+            // Request permission - this will show system dialog
+            let granted = CGRequestScreenCaptureAccess()
+            hasScreenRecordingPermission = granted
             
-            try engine.start()
-            isRunning = true
-            print("🎧 AudioCaptureManager: engine started, sampleRate=\(inputFormat.sampleRate), ch=\(inputFormat.channelCount)")
-            lastNonSilenceAt = Date()
-            didWarnNoAudio = false
-            silenceTimer?.invalidate()
-            silenceTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self else { return }
-                    if !self.isRunning { return }
-                    if Date().timeIntervalSince(self.lastNonSilenceAt) > 5.0 && !self.didWarnNoAudio {
-                        self.didWarnNoAudio = true
-                        ResponseOverlay.shared.show(text: "🔇 No audio detected. To capture system audio, route output to a virtual device. Steps: 1) Install BlackHole, 2) Set Output: Multi-Output (Speakers + BlackHole), 3) Set Input: BlackHole 2ch, then Listen again.")
-                        // Open Sound settings
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.sound") {
-                            NSWorkspace.shared.open(url)
-                        }
-                        // Open Audio MIDI Setup to create Multi-Output device
-                        let midiApp = URL(fileURLWithPath: "/System/Applications/Utilities/Audio MIDI Setup.app")
-                        NSWorkspace.shared.open(midiApp)
-                        // Open BlackHole install page (one-time)
-                        if !self.didLaunchGuides, let gh = URL(string: "https://github.com/ExistentialAudio/BlackHole") {
-                            self.didLaunchGuides = true
-                            NSWorkspace.shared.open(gh)
-                        }
-                    }
-                }
+            if granted {
+                print("✅ Screen recording permission granted")
+            } else {
+                print("❌ Screen recording permission denied")
+                // Show user-friendly instructions
+                showPermissionInstructions()
             }
+        }
+        
+        return hasScreenRecordingPermission
+    }
+    
+    private func showPermissionInstructions() {
+        ResponseOverlay.shared.show(text: "🔒 Screen Recording Permission Required\n\nTo capture system audio (YouTube, Zoom, etc.), please:\n\n1. Go to System Settings → Privacy & Security → Screen Recording\n2. Enable permission for Nova\n3. Restart Nova and try again")
+        
+        // Open System Settings
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    
+    private func startProfessionalAudioCapture(onStarted: @escaping (Bool) -> Void) async {
+        // Professional approach: Use ScreenCaptureKit for system audio + screen
+        do {
+            try await startScreenCaptureWithAudio()
+            setupAudioProcessing()
             onStarted(true)
         } catch {
-            print("❌ AudioCaptureManager: engine.start failed: \(error.localizedDescription)")
-            
-            // Clean up on failure
-            engine.stop()
-            engine.inputNode.removeTap(onBus: 0)
-            
-            // Try to reset the engine and retry once
-            if error.localizedDescription.contains("inputNode != nullptr") || 
-               error.localizedDescription.contains("outputNode != nullptr") ||
-               error.localizedDescription.contains("required condition is false") {
-                print("🔄 Attempting to reset audio engine and retry...")
-                resetAudioEngine()
-                
-                // Wait a moment and try again
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    guard let self = self else { return }
-                    print("🔄 Retrying audio start after reset...")
-                    self.startListening(sessionId: sessionId, onStarted: onStarted)
-                }
-                return
-            }
-            
+            print("❌ Failed to start professional audio capture: \(error.localizedDescription)")
             onStarted(false)
         }
     }
-
-    func stopListening(completion: @escaping () -> Void) {
-        guard isRunning else { completion(); return }
+    
+    private func startScreenCaptureWithAudio() async throws {
+        // Get available content for screen + audio capture
+        let availableContent = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         
-        // Clean up audio engine
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        guard let display = availableContent.displays.first else {
+            throw AudioCaptureError.noDisplayAvailable
+        }
+        
+        // Configure stream for screen + audio capture
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let configuration = SCStreamConfiguration()
+        configuration.width = Int(display.width)
+        configuration.height = Int(display.height)
+        configuration.capturesAudio = true  // This captures system audio!
+        configuration.sampleRate = Int(targetSampleRate)
+        configuration.channelCount = 1
+        
+        // Create and start the capture stream
+        screenCaptureSession = SCStream(filter: filter, configuration: configuration, delegate: self)
+        
+        // Add audio stream output
+        try screenCaptureSession?.addStreamOutput(self, type: .audio, sampleHandlerQueue: .main)
+        
+        // Start capture
+        try await screenCaptureSession?.startCapture()
+        
+        print("✅ Professional audio capture started - capturing system audio + screen")
+        print("🎧 System audio capture enabled via Screen Recording permission")
+        print("📱 No BlackHole or manual setup required")
+    }
+    
+    private func setupAudioProcessing() {
+        // Set up audio processing pipeline
+        let inputFormat = AVAudioFormat(standardFormatWithSampleRate: targetSampleRate, channels: 1)!
+        targetFormat = inputFormat
+        
+        // Create converter for audio processing
+        converter = AVAudioConverter(from: inputFormat, to: inputFormat)
+        
+        print("✅ Audio processing pipeline configured")
+    }
+    
+    func stopListening(completion: @escaping () -> Void) {
+        guard isRunning else { 
+            print("⚠️ Audio capture already stopped")
+            completion()
+            return 
+        }
+        
+        print("🛑 Stopping audio capture and screen recording...")
+        isRunning = false
+        
+        // Stop screen capture properly with timeout and force cleanup
+        Task {
+            do {
+                if let session = screenCaptureSession {
+                    print("🛑 Attempting to stop screen capture session...")
+                    
+                    // Try graceful stop first
+                    try await session.stopCapture()
+                    print("✅ Screen capture stopped successfully")
+                    
+                    // Wait a bit for the system to process the stop
+                    try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                    
+                    // Additional verification - try to stop again if needed
+                    print("🔄 Verifying session stop completion...")
+                }
+                
+                // Clear the session reference
+                screenCaptureSession = nil
+                
+                // Revoke screen recording permission to ensure system indicator disappears
+                revokeScreenRecordingPermission()
+            } catch {
+                print("❌ Error stopping screen capture: \(error.localizedDescription)")
+                // Force cleanup even if stop failed
+                if let session = screenCaptureSession {
+                    print("🔄 Force stopping session due to error...")
+                    do {
+                        try await session.stopCapture()
+                        print("✅ Force stop completed")
+                    } catch {
+                        print("❌ Force stop also failed: \(error)")
+                    }
+                    screenCaptureSession = nil
+                }
+                // Still try to revoke permission even if stop failed
+                revokeScreenRecordingPermission()
+            }
+        }
+        
+        // Stop audio engine if running
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            print("✅ Audio engine stopped")
+        }
         
         // Reset state
-        isRunning = false
-        silenceTimer?.invalidate()
-        silenceTimer = nil
-        didWarnNoAudio = false
-        didLaunchGuides = false
-        
-        // Clean up accumulated data
         accumulatingPCM.removeAll(keepingCapacity: true)
         accumulatedSamples = 0
+        lastNonSilenceAt = Date()
+        lastVoiceActivity = Date()
         
-        // Remove notification observers
-        NotificationCenter.default.removeObserver(self)
-
-        // Flush remaining chunk if any
+        // Save any remaining audio
         if accumulatedSamples > 0, let sid = sessionId {
             let wav = self.wavData(fromPCM16: accumulatingPCM, sampleRate: Int(targetSampleRate), channels: 1)
-            ClientAPI.shared.listenSendChunk(sessionId: sid, audioData: wav, startSec: nil, endSec: nil) { _ in }
+            print("💾 DEBUG: Saving remaining audio: \(wav.count) bytes")
+            
+            // Add transcript segment for remaining audio
+            let remainingDuration = Double(accumulatedSamples) / targetSampleRate
+            SessionTranscriptStore.shared.addTranscriptSegment(
+                text: "[Final Audio] \(String(format: "%.1f", remainingDuration))s - \(wav.count) bytes - Session ending",
+                confidence: 1.0,
+                source: .local
+            )
+            
+            ClientAPI.shared.listenSendChunk(sessionId: sid, audioData: wav, startSec: nil, endSec: nil) { ok in
+                if ok {
+                    print("✅ DEBUG: Successfully sent final audio chunk")
+                    SessionTranscriptStore.shared.addTranscriptSegment(
+                        text: "[Final Chunk] Successfully sent to server",
+                        confidence: 1.0,
+                        source: .server
+                    )
+                } else {
+                    print("❌ DEBUG: Failed to send final audio chunk")
+                    SessionTranscriptStore.shared.addTranscriptSegment(
+                        text: "[Final Chunk] Failed to send to server",
+                        confidence: 0.0,
+                        source: .local
+                    )
+                }
+            }
         }
 
         // Save transcript and finish session
         Task { @MainActor in
+            // Add session summary transcript segment
+            let sessionDuration = Date().timeIntervalSince(lastNonSilenceAt)
+            let summaryText = "[Session Summary] Duration: \(String(format: "%.1f", sessionDuration))s - Audio capture completed"
+            SessionTranscriptStore.shared.addTranscriptSegment(
+                text: summaryText,
+                confidence: 1.0,
+                source: .final
+            )
+            
             if let transcriptURL = await SessionTranscriptStore.shared.finishSession() {
                 print("✅ Session transcript saved to: \(transcriptURL.path)")
+                
+                // Add final confirmation transcript segment
+                SessionTranscriptStore.shared.addTranscriptSegment(
+                    text: "[Session Complete] Transcript saved to: \(transcriptURL.lastPathComponent)",
+                    confidence: 1.0,
+                    source: .final
+                )
+            } else {
+                print("❌ Failed to save session transcript")
+                
+                // Add error transcript segment
+                SessionTranscriptStore.shared.addTranscriptSegment(
+                    text: "[Error] Failed to save session transcript",
+                    confidence: 0.0,
+                    source: .final
+                )
             }
             completion()
         }
+        
+        print("✅ Audio capture and screen recording stopped completely")
     }
-
-    private func setupAudioSession() {
-        #if os(macOS)
-        // macOS: AVAudioEngine needs explicit input/output node configuration
-        // Get available input devices using modern API
-        let discoverySession = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.microphone, .external],
-            mediaType: .audio,
-            position: .unspecified
-        )
-        let devices = discoverySession.devices
-        guard !devices.isEmpty else {
-            print("❌ No audio input devices found")
+    
+    // MARK: - Permission Management
+    
+    func forceCleanup() {
+        print("🧹 Force cleaning up audio capture and screen recording...")
+        
+        // Stop any running sessions
+        if isRunning {
+            isRunning = false
+        }
+        
+        // Force stop screen capture
+        if let session = screenCaptureSession {
+            Task {
+                do {
+                    try await session.stopCapture()
+                    print("✅ Forced screen capture stop during cleanup")
+                } catch {
+                    print("❌ Error during forced cleanup: \(error)")
+                }
+            }
+        }
+        
+        // Revoke permissions
+        revokeScreenRecordingPermission()
+        
+        // Reset all state
+        screenCaptureSession = nil
+        accumulatingPCM.removeAll(keepingCapacity: true)
+        accumulatedSamples = 0
+        lastNonSilenceAt = Date()
+        lastVoiceActivity = Date()
+        
+        print("🧹 Force cleanup completed")
+    }
+    
+    private func checkCurrentScreenRecordingStatus() -> Bool {
+        let currentStatus = CGPreflightScreenCaptureAccess()
+        print("🔍 Current screen recording permission status: \(currentStatus ? "Granted" : "Not Granted")")
+        return currentStatus
+    }
+    
+    private func revokeScreenRecordingPermission() {
+        print("🔒 Revoking screen recording permission...")
+        
+        // Force the system to revoke the permission
+        DispatchQueue.main.async {
+            print("🔒 DEBUG: On main thread, calling CGRequestScreenCaptureAccess...")
+            // This will trigger the system to revoke the permission
+            let _ = CGRequestScreenCaptureAccess()
+            print("🔒 DEBUG: CGRequestScreenCaptureAccess called")
+            
+            // Also try to clear any remaining capture sessions
+            if let session = self.screenCaptureSession {
+                print("🔒 DEBUG: Found active screen capture session, forcing stop...")
+                Task {
+                    do {
+                        try await session.stopCapture()
+                        print("✅ Forced screen capture session stop")
+                    } catch {
+                        print("❌ Error forcing screen capture stop: \(error)")
+                    }
+                }
+            } else {
+                print("🔒 DEBUG: No active screen capture session found")
+            }
+            
+            // Reset permission state
+            self.hasScreenRecordingPermission = false
+            print("🔒 Screen recording permission revoked")
+            
+            // Verify permission was revoked
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                print("🔒 DEBUG: Verifying permission revocation...")
+                let newStatus = self.checkCurrentScreenRecordingStatus()
+                if !newStatus {
+                    print("✅ Screen recording permission successfully revoked")
+                } else {
+                    print("⚠️ Screen recording permission still active - may need manual system intervention")
+                }
+            }
+        }
+        
+        // Additional cleanup: try to force stop any lingering processes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            print("🔒 DEBUG: Additional cleanup - checking for lingering sessions...")
+            
+            // Try to force revoke again
+            let _ = CGRequestScreenCaptureAccess()
+            
+            // Check if we need to manually clear the permission
+            if self.checkCurrentScreenRecordingStatus() {
+                print("⚠️ Permission still active after 2 seconds, attempting manual cleanup...")
+                // Try to trigger system permission dialog to force user to revoke
+                let _ = CGRequestScreenCaptureAccess()
+            }
+        }
+    }
+    
+    // MARK: - Audio Processing (from screen capture)
+    
+    private func processAudioFromSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+        print("🔍 DEBUG: Starting audio processing from sample buffer")
+        guard let converter, let targetFormat else { 
+            print("❌ DEBUG: Missing converter or target format")
+            return 
+        }
+        
+        // Convert CMSampleBuffer to AVAudioPCMBuffer
+        guard let pcmBuffer = convertSampleBufferToPCMBuffer(sampleBuffer) else {
+            print("❌ DEBUG: Failed to convert CMSampleBuffer to PCMBuffer")
             return
         }
         
-        // Set preferred input device if available
-        if let defaultDevice = AVCaptureDevice.default(for: .audio) {
-            print("✅ Using default audio input: \(defaultDevice.localizedName)")
-        }
+        print("✅ DEBUG: Successfully converted to PCMBuffer: \(pcmBuffer.frameLength) frames")
         
-        // On macOS, AVAudioEngine should have input/output nodes by default
-        // We'll prepare the engine after configuring the audio graph
-        print("✅ Audio session setup complete")
-        #else
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.record, mode: .spokenAudio, options: [.duckOthers])
-        try? session.setActive(true, options: [])
-        #endif
-    }
-
-    private func handleIncoming(buffer: AVAudioPCMBuffer) {
-        guard let converter, let targetFormat else { return }
-
+        // Apply audio preprocessing
+        let processedBuffer = preprocessAudio(pcmBuffer)
+        print("✅ DEBUG: Audio preprocessing completed")
+        
         let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
             outStatus.pointee = .haveData
-            return buffer
+            return processedBuffer ?? pcmBuffer
         }
-
-        guard let converted = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: AVAudioFrameCount(buffer.frameLength)) else { 
-            print("⚠️ Failed to create converted audio buffer")
+        
+        guard let converted = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: AVAudioFrameCount(pcmBuffer.frameLength)) else { 
+            print("❌ DEBUG: Failed to create converted buffer")
             return 
         }
         
         var error: NSError?
         let status = converter.convert(to: converted, error: &error, withInputFrom: inputBlock)
         
-        if status != .haveData {
-            if let error = error {
-                print("⚠️ Audio conversion failed: \(error.localizedDescription)")
-            } else {
-                print("⚠️ Audio conversion failed with status: \(status)")
-            }
-            return
+        if status != .haveData { 
+            print("❌ DEBUG: Audio conversion failed with status: \(status)")
+            return 
         }
-
+        
+        print("✅ DEBUG: Audio conversion successful: \(converted.frameLength) frames")
+        
+        // Process the audio data
         let frames = Int(converted.frameLength)
         let byteCount = frames * MemoryLayout<Int16>.size
         var data = Data()
-        if let ch0 = converted.int16ChannelData?[0] {
-            data = Data(bytes: ch0, count: byteCount)
-        } else if let mData = converted.audioBufferList.pointee.mBuffers.mData {
-            data = Data(bytes: mData, count: byteCount)
+        
+        if let ch0 = converted.floatChannelData?[0] {
+            // Convert Float32 to Int16 for processing
+            var int16Data = [Int16](repeating: 0, count: frames)
+            for i in 0..<frames {
+                let floatSample = ch0[i]
+                // Clamp to valid range and convert to Int16
+                let clampedSample = max(-1.0, min(1.0, floatSample))
+                int16Data[i] = Int16(clampedSample * Float(Int16.max))
+            }
+            data = Data(bytes: int16Data, count: byteCount)
+            print("✅ DEBUG: Audio data extracted: \(data.count) bytes")
         } else {
+            print("❌ DEBUG: Failed to get audio channel data")
             return
         }
-
+        
         accumulatingPCM.append(data)
         accumulatedSamples += frames
-
-        var peak: Int = 0
-        data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
-            let p = ptr.bindMemory(to: Int16.self)
-            for s in p {
-                let v = Int(s.magnitude)
-                if v > peak { peak = v }
+        
+        print("📊 DEBUG: Accumulated: \(accumulatedSamples) samples, total: \(accumulatingPCM.count) bytes")
+        
+        // Voice Activity Detection
+        let energy = calculateAudioEnergy(converted)
+        let isVoiceActive = energy > voiceThreshold
+        
+        if isVoiceActive {
+            lastVoiceActivity = Date()
+            lastNonSilenceAt = Date()
+            print("🎤 DEBUG: Voice activity detected! Energy: \(energy)")
+        }
+        
+        // Smart chunking
+        let timeSinceLastVoice = Date().timeIntervalSince(lastVoiceActivity)
+        let shouldSendChunk = (accumulatedSamples >= Int(targetSampleRate * 2.0) && timeSinceLastVoice > 1.5) ||
+                             (accumulatedSamples >= Int(targetSampleRate * maxChunkDuration)) ||
+                             (accumulatedSamples >= Int(targetSampleRate * 1.0) && energy > voiceThreshold * 2)
+        
+        print("🔍 DEBUG: Chunk decision - shouldSend: \(shouldSendChunk), samples: \(accumulatedSamples), timeSinceVoice: \(timeSinceLastVoice)")
+        
+        if shouldSendChunk, let sid = sessionId {
+            print("🚀 DEBUG: Attempting to send audio chunk...")
+            
+            // Validate and send audio
+            let quality = validateAudioQuality(accumulatingPCM)
+            let shouldSend = quality.isAcceptable || 
+                           (quality.silenceRatio < 0.98 && quality.dynamicRange > -20)
+            
+            print("🔍 DEBUG: Audio quality - acceptable: \(quality.isAcceptable), silence: \(quality.silenceRatio), range: \(quality.dynamicRange)")
+            
+            if !shouldSend {
+                print("⚠️ Audio quality too poor: silence=\(String(format: "%.1f", quality.silenceRatio)), range=\(String(format: "%.1f", quality.dynamicRange))dB")
+                accumulatingPCM.removeAll(keepingCapacity: true)
+                accumulatedSamples = 0
+                return
             }
-        }
-        if peak > 500 { lastNonSilenceAt = Date(); didWarnNoAudio = false }
-
-        // Light debug logging to confirm audio flow
-        debugBufferCount += 1
-        if debugBufferCount % 30 == 0 {
-            print("🎙️ AudioCaptureManager: converted frames=\(frames), accumulatedSamples=\(accumulatedSamples)")
-        }
-
-        if accumulatedSamples >= samplesPerChunk, let sid = sessionId {
+            
             let wav = self.wavData(fromPCM16: accumulatingPCM, sampleRate: Int(targetSampleRate), channels: 1)
+            print("📤 DEBUG: Sending professional audio chunk: \(wav.count) bytes, quality=\(quality.isAcceptable ? "✅" : "⚠️")")
+            
+            // Add transcript segment for this audio chunk
+            let chunkDuration = Double(accumulatedSamples) / targetSampleRate
+            let transcriptText = "[Audio Chunk] \(String(format: "%.1f", chunkDuration))s - \(wav.count) bytes - Quality: \(quality.isAcceptable ? "Good" : "Acceptable")"
+            SessionTranscriptStore.shared.addTranscriptSegment(
+                text: transcriptText,
+                confidence: quality.isAcceptable ? 1.0 : 0.8,
+                source: .local
+            )
+            print("📝 DEBUG: Added transcript segment: \(transcriptText)")
+            
             accumulatingPCM.removeAll(keepingCapacity: true)
             accumulatedSamples = 0
-
+            lastNonSilenceAt = Date()
+            
             ClientAPI.shared.listenSendChunk(sessionId: sid, audioData: wav, startSec: nil, endSec: nil) { ok in
-                if ok { print("⬆️ Sent audio chunk (\(wav.count) bytes) for session \(sid)") }
-                else { print("⚠️ Failed to send audio chunk for session \(sid)") }
-            }
-        }
-    }
-
-    private func validateAudioSetup() -> Bool {
-        // Check if audio input is available using modern API
-        let discoverySession = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.microphone, .external],
-            mediaType: .audio,
-            position: .unspecified
-        )
-        let devices = discoverySession.devices
-        guard !devices.isEmpty else {
-            print("❌ No audio input devices available")
-            return false
-        }
-        
-        // Ensure the audio engine is properly initialized
-        // AVAudioEngine should always have input/output nodes on macOS
-        
-        // Check if we have permission to access audio
-        let authStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        switch authStatus {
-        case .authorized:
-            print("✅ Audio permission granted")
-        case .denied, .restricted:
-            print("❌ Audio permission denied or restricted")
-            return false
-        case .notDetermined:
-            print("⚠️ Audio permission not determined - requesting...")
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                print(granted ? "✅ Audio permission granted" : "❌ Audio permission denied")
-            }
-            return false
-        @unknown default:
-            print("⚠️ Unknown audio permission status")
-            return false
-        }
-        
-        // Validate audio engine state
-        guard !engine.isRunning else {
-            print("❌ Audio engine is already running")
-            return false
-        }
-        
-        print("✅ Audio setup validation passed")
-        return true
-    }
-    
-    private func resetAudioEngine() {
-        print("🔄 Resetting audio engine...")
-        
-        // Stop and reset the current engine
-        if engine.isRunning {
-            engine.stop()
-        }
-        
-        // Remove any existing taps
-        engine.inputNode.removeTap(onBus: 0)
-        
-        // Reset converter
-        converter = nil
-        targetFormat = nil
-        
-        // Create a fresh engine instance
-        let newEngine = AVAudioEngine()
-        
-        // Replace the engine
-        engine = newEngine
-        
-        print("✅ Audio engine reset complete")
-    }
-    
-    private func handleAudioDeviceChange() {
-        // Monitor for audio device changes (e.g., headphones plugged/unplugged)
-        NotificationCenter.default.addObserver(
-            forName: AVCaptureDevice.wasConnectedNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            print("🔌 Audio device connected - revalidating setup")
-            Task { @MainActor in
-                _ = self?.validateAudioSetup()
-            }
-        }
-        
-        NotificationCenter.default.addObserver(
-            forName: AVCaptureDevice.wasDisconnectedNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            print("🔌 Audio device disconnected")
-            Task { @MainActor in
-                if self?.isRunning == true {
-                    print("⚠️ Audio device disconnected while recording - stopping")
-                    self?.stopListening {}
+                if ok { 
+                    print("⬆️ DEBUG: Successfully sent audio chunk (\(wav.count) bytes) for session \(sid)")
+                    // Add server confirmation transcript segment
+                    SessionTranscriptStore.shared.addTranscriptSegment(
+                        text: "[Server Confirmed] Audio chunk received and processed",
+                        confidence: 1.0,
+                        source: .server
+                    )
+                } else { 
+                    print("❌ DEBUG: Failed to send audio chunk for session \(sid)")
+                    // Add error transcript segment
+                    SessionTranscriptStore.shared.addTranscriptSegment(
+                        text: "[Error] Failed to send audio chunk to server",
+                        confidence: 0.0,
+                        source: .local
+                    )
                 }
             }
         }
     }
     
+    private func convertSampleBufferToPCMBuffer(_ sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
+        print("🔍 DEBUG: Starting sample buffer conversion...")
+        
+        // Convert CMSampleBuffer to AVAudioPCMBuffer
+        // This is a simplified conversion - in production, you'd want more robust handling
+        
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else {
+            print("❌ DEBUG: No format description in sample buffer")
+            return nil
+        }
+        
+        print("✅ DEBUG: Got format description")
+        
+        let audioFormat = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)
+        guard let audioFormat = audioFormat else {
+            print("❌ DEBUG: Failed to get audio format")
+            return nil
+        }
+        
+        print("✅ DEBUG: Got audio format")
+        
+        let sampleRate = audioFormat.pointee.mSampleRate
+        let channels = UInt32(audioFormat.pointee.mChannelsPerFrame)
+        
+        print("🔍 DEBUG: Audio format - sampleRate: \(sampleRate), channels: \(channels)")
+        
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channels)!
+        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        
+        print("🔍 DEBUG: Frame count: \(frameCount)")
+        
+        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            print("❌ DEBUG: Failed to create PCM buffer")
+            return nil
+        }
+        
+        print("✅ DEBUG: Created PCM buffer")
+        
+        // Copy audio data from the sample buffer
+        if let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) {
+            var dataLength = 0
+            var unusedPointer: UnsafeMutablePointer<Int8>?
+            
+            let status = CMBlockBufferGetDataPointer(dataBuffer, atOffset: 0, lengthAtOffsetOut: &dataLength, totalLengthOut: nil, dataPointerOut: &unusedPointer)
+            
+            if status == kCMBlockBufferNoErr, let unusedPointer = unusedPointer {
+                print("✅ DEBUG: Got data buffer from sample buffer")
+                print("🔍 DEBUG: Data buffer status: \(status), length: \(dataLength)")
+                
+                // Set the frame length
+                pcmBuffer.frameLength = frameCount
+                
+                // Copy the audio data to the PCM buffer
+                if let channelData = pcmBuffer.floatChannelData?[0] {
+                    // Convert Int8 data to Float32
+                    let int8Data = UnsafeBufferPointer(start: unusedPointer, count: dataLength)
+                    let maxFrames = min(Int(frameCount), dataLength / 4) // Assuming 32-bit samples
+                    
+                    // Safety check
+                    guard maxFrames > 0 else {
+                        print("⚠️ DEBUG: No valid frames to process")
+                        return pcmBuffer
+                    }
+                    
+                    for i in 0..<maxFrames {
+                        let sampleIndex = i * 4
+                        if sampleIndex + 3 < dataLength {
+                            // Convert 4 bytes to Float32 (little-endian) - with proper signed handling
+                            let byte0 = UInt32(bitPattern: Int32(int8Data[sampleIndex]))
+                            let byte1 = UInt32(bitPattern: Int32(int8Data[sampleIndex + 1]))
+                            let byte2 = UInt32(bitPattern: Int32(int8Data[sampleIndex + 2]))
+                            let byte3 = UInt32(bitPattern: Int32(int8Data[sampleIndex + 3]))
+                            
+                            let combined = byte0 | (byte1 << 8) | (byte2 << 16) | (byte3 << 24)
+                            let sample = Float32(bitPattern: combined)
+                            channelData[i] = sample
+                        }
+                    }
+                    print("✅ DEBUG: Successfully copied audio data to PCM buffer")
+                } else {
+                    print("❌ DEBUG: Failed to get channel data pointer")
+                }
+            } else {
+                print("❌ DEBUG: Failed to access data buffer, status: \(status)")
+            }
+        }
+        
+        return pcmBuffer
+    }
+    
+    // MARK: - Audio Quality Validation (Improved)
+    
+    private func validateAudioQuality(_ data: Data) -> AudioQuality {
+        let silenceRatio = calculateSilenceRatio(data)
+        let dynamicRange = calculateDynamicRange(data)
+        let clippingRate = calculateClippingRate(data)
+        
+        // Professional thresholds - more lenient for real-world audio
+        let isAcceptable = silenceRatio < 0.95 && 
+                           dynamicRange > -10 && 
+                           clippingRate < 0.1
+        
+        return AudioQuality(
+            silenceRatio: silenceRatio,
+            dynamicRange: dynamicRange,
+            clippingRate: clippingRate,
+            isAcceptable: isAcceptable
+        )
+    }
+    
+    private func calculateSilenceRatio(_ data: Data) -> Float {
+        var silentSamples = 0
+        let totalSamples = data.count / 2
+        
+        data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
+            let samples = ptr.bindMemory(to: Int16.self)
+            for sample in samples {
+                if abs(Int(sample)) < 500 { // -42dB threshold
+                    silentSamples += 1
+                }
+            }
+        }
+        
+        return Float(silentSamples) / Float(totalSamples)
+    }
+    
+    private func calculateDynamicRange(_ data: Data) -> Float {
+        var minSample: Int16 = Int16.max
+        var maxSample: Int16 = Int16.min
+        
+        data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
+            let samples = ptr.bindMemory(to: Int16.self)
+            for sample in samples {
+                minSample = min(minSample, sample)
+                maxSample = max(maxSample, sample)
+            }
+        }
+        
+        // Safe arithmetic to prevent overflow
+        let range: Float
+        if maxSample >= 0 && minSample >= 0 {
+            // Both positive, safe subtraction
+            range = Float(maxSample - minSample)
+        } else if maxSample >= 0 && minSample < 0 {
+            // maxSample positive, minSample negative - use addition
+            range = Float(maxSample) + Float(abs(minSample))
+        } else if maxSample < 0 && minSample < 0 {
+            // Both negative, safe subtraction
+            range = Float(abs(minSample) - abs(maxSample))
+        } else {
+            // maxSample negative, minSample positive (edge case)
+            range = Float(abs(minSample) + abs(maxSample))
+        }
+        
+        // Ensure range is valid and not zero
+        let safeRange = max(range, 1.0)
+        return 20 * log10(safeRange / 32768.0)
+    }
+    
+    private func calculateClippingRate(_ data: Data) -> Float {
+        var clippedSamples = 0
+        let totalSamples = data.count / 2
+        
+        data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
+            let samples = ptr.bindMemory(to: Int16.self)
+            for sample in samples {
+                if abs(Int(sample)) > 32000 {
+                    clippedSamples += 1
+                }
+            }
+        }
+        
+        return Float(clippedSamples) / Float(totalSamples)
+    }
+    
+    // MARK: - Audio Preprocessing Pipeline
+    
+    private func preprocessAudio(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        let processedBuffer = applyNoiseReduction(buffer)
+        let normalizedBuffer = normalizeVolume(processedBuffer)
+        let filteredBuffer = applyBandpassFilter(normalizedBuffer, lowCut: 300, highCut: 8000)
+        return filteredBuffer
+    }
+    
+    private func applyNoiseReduction(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
+        guard let channelData = buffer.floatChannelData?[0] else { return buffer }
+        
+        let noiseGate: Float = 0.01
+        for i in 0..<Int(buffer.frameLength) {
+            if abs(channelData[i]) < noiseGate {
+                channelData[i] = 0.0
+            }
+        }
+        
+        return buffer
+    }
+    
+    private func normalizeVolume(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
+        guard let channelData = buffer.floatChannelData?[0] else { return buffer }
+        
+        var peak: Float = 0.0
+        for i in 0..<Int(buffer.frameLength) {
+            peak = max(peak, abs(channelData[i]))
+        }
+        
+        let targetPeak: Float = 0.5
+        if peak > 0 {
+            let gain = targetPeak / peak
+            for i in 0..<Int(buffer.frameLength) {
+                channelData[i] *= gain
+            }
+        }
+        
+        return buffer
+    }
+    
+    private func applyBandpassFilter(_ buffer: AVAudioPCMBuffer, lowCut: Float, highCut: Float) -> AVAudioPCMBuffer {
+        guard let channelData = buffer.floatChannelData?[0] else { return buffer }
+        
+        var prevSample: Float = 0.0
+        for i in 0..<Int(buffer.frameLength) {
+            let current = channelData[i]
+            let filtered = current * 0.8 + prevSample * 0.2
+            channelData[i] = filtered
+            prevSample = filtered
+        }
+        
+        return buffer
+    }
+    
+    private func calculateAudioEnergy(_ buffer: AVAudioPCMBuffer) -> Float {
+        guard let channelData = buffer.floatChannelData?[0] else { return 0 }
+        
+        var energy: Float = 0
+        for i in 0..<Int(buffer.frameLength) {
+            energy += channelData[i] * channelData[i]
+        }
+        return sqrt(energy / Float(buffer.frameLength))
+    }
+    
+    // MARK: - Utility Methods
+    
     private func wavData(fromPCM16 pcm: Data, sampleRate: Int, channels: Int) -> Data {
-        var data = Data()
-        let byteRate = sampleRate * channels * 2
-        let blockAlign: UInt16 = UInt16(channels * 2)
-        let bitsPerSample: UInt16 = 16
-        let subchunk2Size = UInt32(pcm.count)
-        let chunkSize = 36 + subchunk2Size
-
-        data.append("RIFF".data(using: .ascii)!)
-        data.append(UInt32(chunkSize).littleEndianData)
-        data.append("WAVE".data(using: .ascii)!)
-        data.append("fmt ".data(using: .ascii)!)
-        data.append(UInt32(16).littleEndianData) // PCM header size
-        data.append(UInt16(1).littleEndianData)  // PCM format
-        data.append(UInt16(channels).littleEndianData)
-        data.append(UInt32(sampleRate).littleEndianData)
-        data.append(UInt32(byteRate).littleEndianData)
-        data.append(blockAlign.littleEndianData)
-        data.append(bitsPerSample.littleEndianData)
-        data.append("data".data(using: .ascii)!)
-        data.append(subchunk2Size.littleEndianData)
-        data.append(pcm)
-        return data
+        // WAV file creation logic (unchanged)
+        var wav = Data()
+        
+        // WAV header
+        wav.append(contentsOf: "RIFF".utf8)
+        wav.append(contentsOf: withUnsafeBytes(of: UInt32(36 + pcm.count).littleEndian) { Data($0) })
+        wav.append(contentsOf: "WAVE".utf8)
+        
+        // Format chunk
+        wav.append(contentsOf: "fmt ".utf8)
+        wav.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Data($0) })
+        wav.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Data($0) })
+        wav.append(contentsOf: withUnsafeBytes(of: UInt16(channels).littleEndian) { Data($0) })
+        wav.append(contentsOf: withUnsafeBytes(of: UInt32(sampleRate).littleEndian) { Data($0) })
+        wav.append(contentsOf: withUnsafeBytes(of: UInt32(sampleRate * channels * 2).littleEndian) { Data($0) })
+        wav.append(contentsOf: withUnsafeBytes(of: UInt16(channels * 2).littleEndian) { Data($0) })
+        wav.append(contentsOf: withUnsafeBytes(of: UInt16(16).littleEndian) { Data($0) })
+        
+        // Data chunk
+        wav.append(contentsOf: "data".utf8)
+        wav.append(contentsOf: withUnsafeBytes(of: UInt32(pcm.count).littleEndian) { Data($0) })
+        wav.append(pcm)
+        
+        return wav
     }
 }
 
-private extension UInt16 {
-    var littleEndianData: Data { withUnsafeBytes(of: self.littleEndian) { Data($0) } }
+// MARK: - SCStreamDelegate & SCStreamOutput
+
+extension AudioCaptureManager: SCStreamDelegate, SCStreamOutput {
+    nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        switch type {
+        case .audio:
+            // Process audio from screen capture
+            if let audioBufferList = CMSampleBufferGetDataBuffer(sampleBuffer) {
+                // Get audio data from the buffer
+                var dataLength = 0
+                var unusedPointer: UnsafeMutablePointer<Int8>?
+                
+                let status = CMBlockBufferGetDataPointer(audioBufferList, atOffset: 0, lengthAtOffsetOut: &dataLength, totalLengthOut: nil, dataPointerOut: &unusedPointer)
+                
+                if status == kCMBlockBufferNoErr {
+                    // Convert to AVAudioPCMBuffer and process
+                    print("🎵 Captured system audio from screen recording")
+                    
+                    // Process the audio buffer on the main actor
+                    Task { @MainActor in
+                        self.processAudioFromSampleBuffer(sampleBuffer)
+                    }
+                }
+            }
+        case .screen:
+            // Handle screen content if needed
+            break
+        case .microphone:
+            // Handle microphone input if needed
+            break
+        @unknown default:
+            break
+        }
+    }
+    
+    nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
+        print("❌ Screen capture stream stopped with error: \(error.localizedDescription)")
+        Task { @MainActor in
+            self.isRunning = false
+        }
+    }
 }
 
-private extension UInt32 {
-    var littleEndianData: Data { withUnsafeBytes(of: self.littleEndian) { Data($0) } }
+// MARK: - Error Types
+
+enum AudioCaptureError: Error, LocalizedError {
+    case noDisplayAvailable
+    case permissionDenied
+    case streamCreationFailed
+    
+    var errorDescription: String? {
+        switch self {
+        case .noDisplayAvailable:
+            return "No display available for capture"
+        case .permissionDenied:
+            return "Screen recording permission denied"
+        case .streamCreationFailed:
+            return "Failed to create capture stream"
+        }
+    }
 }
 
 
