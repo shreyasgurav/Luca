@@ -1,12 +1,12 @@
-# Nova — Neural Omni-View Assistant
+# LUCA - Learning & Understanding Conversational Assistant
 
 An on-device macOS assistant that sees your screen, understands context, and helps across tasks. Nova captures, analyzes, chats, and remembers—combining multimodal AI with a refined desktop UX.
 
-Nova stands for "Neural Omni-View Assistant".
+Luca stands for "Learning & Understanding Conversational Assistant".
 
 ## 🎯 Professional Audio Capture
 
-Nova uses **Screen Recording permission** to capture system audio (YouTube, Zoom, music, etc.) automatically. This is the same approach used by professional apps like Clueify.
+Luca uses **Screen Recording permission** to capture system audio (YouTube, Zoom, music, etc.) automatically.
 
 ### ✅ Zero Configuration Required
 - **No external drivers** like BlackHole
