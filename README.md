@@ -146,9 +146,4 @@ cd Server && npm start
 
 ---
 
-## License
-MIT
-
----
-
 Made with care for a fast, focused macOS AI experience.
