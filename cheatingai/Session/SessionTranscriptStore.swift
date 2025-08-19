@@ -22,6 +22,7 @@ final class SessionTranscriptStore {
         let startTime: Date
         var endTime: Date?
         var segments: [TranscriptSegment]
+        var summary: String? // NEW: model summary
         var fileName: String {
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
@@ -97,8 +98,9 @@ final class SessionTranscriptStore {
             print("⚠️ Real user Documents path is still sandboxed, trying alternatives...")
         }
         
-        // Fallback locations
+        // Fallback locations - prioritize Downloads folder (usually has fewer restrictions)
         let fallbackLocations = [
+            ("User Downloads", getRealUserDownloadsFolder()),
             ("User Desktop", getRealUserDesktopFolder()),
             ("App Documents", fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!)
         ]
@@ -204,6 +206,20 @@ final class SessionTranscriptStore {
         return fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
     }
     
+    private func getRealUserDownloadsFolder() -> URL {
+        // Try to get the Downloads folder for the real user
+        let username = NSUserName()
+        let userDownloads = "/Users/\(username)/Downloads"
+        
+        if fileManager.fileExists(atPath: userDownloads) {
+            print("✅ Found real user Downloads: \(userDownloads)")
+            return URL(fileURLWithPath: userDownloads)
+        }
+        
+        // Fallback to sandboxed path
+        return fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+    }
+    
     private func getRealUserDesktopFolder() -> URL {
         // Similar logic for Desktop folder
         let username = NSUserName()
@@ -245,14 +261,20 @@ final class SessionTranscriptStore {
     // MARK: - Session Lifecycle
     func startSession(sessionId: String) {
         print("📝 SessionTranscriptStore: Starting session \(sessionId)")
+        print("🔍 DEBUG: Previous session: \(currentSessionTranscript?.sessionId ?? "NIL")")
+        print("🔍 DEBUG: Previous segments count: \(transcriptSegments.count)")
         
         currentSessionTranscript = SessionTranscript(
             sessionId: sessionId,
             startTime: Date(),
             endTime: nil,
-            segments: []
+            segments: [],
+            summary: nil
         )
         transcriptSegments.removeAll()
+        
+        print("🔍 DEBUG: New session created: \(currentSessionTranscript?.sessionId ?? "NIL")")
+        print("🔍 DEBUG: Segments cleared, new count: \(transcriptSegments.count)")
     }
     
     func addTranscriptSegment(text: String, confidence: Float = 1.0, source: TranscriptSegment.TranscriptSource = .local) {
@@ -269,6 +291,8 @@ final class SessionTranscriptStore {
         currentSessionTranscript?.segments = transcriptSegments
         
         print("📝 Added transcript segment: \(text.prefix(50))...")
+        print("🔍 DEBUG: Current session: \(currentSessionTranscript?.sessionId ?? "NIL")")
+        print("🔍 DEBUG: Total segments: \(transcriptSegments.count)")
         
         // Auto-save every 10 segments to prevent data loss
         if transcriptSegments.count % 10 == 0 {
@@ -278,6 +302,8 @@ final class SessionTranscriptStore {
     
     func finishSession() async -> URL? {
         print("🔍 DEBUG: finishSession called with \(transcriptSegments.count) segments")
+        print("🔍 DEBUG: Current session transcript: \(currentSessionTranscript?.sessionId ?? "NIL")")
+        print("🔍 DEBUG: Transcript segments array: \(transcriptSegments.count) segments")
         
         guard var session = currentSessionTranscript else {
             print("⚠️ No current session to finish")
@@ -294,6 +320,11 @@ final class SessionTranscriptStore {
         print("🔍 DEBUG: Session duration: \(session.endTime!.timeIntervalSince(session.startTime)) seconds")
         
         do {
+            // Generate summary before saving
+            let fullText = generateTranscriptContent(for: session)
+            let summaryText = try? await SummaryManager.shared.generateSummary(from: fullText)
+            session.summary = summaryText
+            
             let savedURL = try await saveSessionTranscript(session)
             print("✅ Session transcript saved: \(savedURL.lastPathComponent)")
             print("✅ Full path: \(savedURL.path)")
@@ -313,6 +344,7 @@ final class SessionTranscriptStore {
     // MARK: - File Operations
     private func saveSessionTranscript(_ session: SessionTranscript) async throws -> URL {
         print("🔍 DEBUG: saveSessionTranscript called for session: \(session.sessionId)")
+        print("🔍 DEBUG: Session has \(session.segments.count) segments")
         
         let transcriptsDir = try getTranscriptsDirectory()
         print("🔍 DEBUG: Transcripts directory: \(transcriptsDir.path)")
@@ -334,8 +366,12 @@ final class SessionTranscriptStore {
             let fileSize = attributes[.size] as? Int ?? 0
             print("🔍 DEBUG: File verified - size: \(fileSize) bytes")
             print("🔍 DEBUG: File attributes: \(attributes)")
+            print("✅ SUCCESS: Transcript file saved to: \(fileURL.path)")
         } else {
             print("❌ DEBUG: File was not created!")
+            print("❌ DEBUG: File path: \(fileURL.path)")
+            print("❌ DEBUG: Directory exists: \(fileManager.fileExists(atPath: transcriptsDir.path))")
+            print("❌ DEBUG: Directory contents: \(try? fileManager.contentsOfDirectory(at: transcriptsDir, includingPropertiesForKeys: nil))")
         }
         
         return fileURL
@@ -358,25 +394,48 @@ final class SessionTranscriptStore {
         }
     }
     
+    private func isSystemAudioHint(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        if lower.contains("[no system audio detected]") { return true }
+        if lower.contains("to capture youtube/zoom") { return true }
+        if lower.contains("blackhole") { return true }
+        return false
+    }
+    
     private func generateTranscriptContent(for session: SessionTranscript) -> String {
+        print("🔍 DEBUG: generateTranscriptContent called for session: \(session.sessionId)")
+        print("🔍 DEBUG: Session has \(session.segments.count) segments")
+        
+        // Filter out any guidance/hint segments before exporting
+        let exportSegments = session.segments.filter { !isSystemAudioHint($0.text) }
+        
         var content = """
         SESSION TRANSCRIPT
         ==================
         Session ID: \(session.sessionId)
         Start Time: \(formatDate(session.startTime))
         End Time: \(session.endTime.map { formatDate($0) } ?? "In Progress")
-        Total Segments: \(session.segments.count)
+        Total Segments: \(exportSegments.count)
+        
+        SUMMARY
+        -------
+        \(session.summary ?? "(Summary not available)")
         
         TRANSCRIPT
         ----------
         
         """
         
-        for segment in session.segments {
+        for (index, segment) in exportSegments.enumerated() {
             content += segment.formattedEntry + "\n"
+            print("🔍 DEBUG: Added segment \(index + 1): \(segment.formattedEntry)")
         }
         
         content += "\n\nEND OF TRANSCRIPT\n"
+        
+        print("🔍 DEBUG: Generated content length: \(content.count) characters")
+        print("🔍 DEBUG: Content preview: \(content.prefix(200))...")
+        
         return content
     }
     
@@ -586,6 +645,8 @@ extension SessionTranscriptStore {
     
     // For server transcript integration  
     func addServerTranscript(_ text: String) {
+        print("🔍 DEBUG: addServerTranscript called with text: \(text.prefix(50))...")
+        print("🔍 DEBUG: Current session: \(currentSessionTranscript?.sessionId ?? "NIL")")
         addTranscriptSegment(text: text, confidence: 1.0, source: .server)
     }
     

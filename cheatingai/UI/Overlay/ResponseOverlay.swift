@@ -677,7 +677,7 @@ struct CompactView: View {
 						}
                 }
             }
-            AudioCaptureManager.shared.stopListening() {}
+            AudioCaptureManager.shared.stopListening()
             SpeechTranscriber.shared.stop()
             ScreenOCRManager.shared.stop()
             isListening = false
@@ -716,8 +716,9 @@ struct CompactView: View {
 
                     if ocrEnabled {
                         ScreenOCRManager.shared.start(captureEvery: 1.0, excludeWindow: ResponseOverlay.shared.panel) { text in
-                            let stamped = "[screen] " + text
-                            localTranscript += (localTranscript.isEmpty ? "" : "\n") + stamped
+                            // Don't add screen text to localTranscript - it should only contain audio transcription
+                            // Screen text is handled separately and shouldn't pollute the audio transcript
+                            print("📱 Screen text captured: \(text)")
                         }
                     }
 

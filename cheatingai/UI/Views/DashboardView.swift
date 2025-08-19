@@ -517,8 +517,23 @@ struct DashboardView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .lineLimit(3)
+                                // Attempt to derive summary from file content
+                                if let fileText = try? String(contentsOf: s.fileURL, encoding: .utf8) {
+                                    let lines = fileText.components(separatedBy: "\n")
+                                    if let summaryIndex = lines.firstIndex(where: { $0.contains("SUMMARY") }) {
+                                        let after = lines.dropFirst(summaryIndex + 1)
+                                        let summary = after.prefix(8).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                                        if !summary.isEmpty {
+                                            Text(summary)
+                                                .font(.caption)
+                                                .foregroundColor(.primary)
+                                                .lineLimit(4)
+                                        }
+                                    }
+                                }
                             }
                             Spacer()
+                            Button("Open") { openSession(s) }
                             Button("Open in Finder") { sessionsStore.revealInFinder(s) }
                             Button("Delete") { sessionsStore.delete(s) }
                                 .foregroundColor(.red)
@@ -529,6 +544,15 @@ struct DashboardView: View {
                 .listStyle(.plain)
             }
         }
+    }
+
+    @State private var showingSessionDetail = false
+    @State private var selectedSession: SessionTranscriptStore.TranscriptSession?
+
+    private func openSession(_ s: SessionTranscriptStore.TranscriptSession) {
+        selectedSession = s
+        let detail = SessionDetailWindow(session: s)
+        detail.show()
     }
     
     private var profileHeaderView: some View {

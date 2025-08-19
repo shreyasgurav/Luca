@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Audio Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .log { background: #f8f9fa; padding: 10px; border-radius: 5px; max-height: 300px; overflow-y: auto; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .start { background: #28a745; color: white; }
+        .stop { background: #dc3545; color: white; }
+        .chunk { background: #007bff; color: white; }
+    </style>
+</head>
+<body>
+    <h1>🔌 WebSocket Audio Streaming Test</h1>
+    
+    <div id="status" class="status disconnected">Disconnected</div>
+    
+    <div>
+        <button id="connectBtn" class="start">Connect</button>
+        <button id="startBtn" class="start" disabled>Start Session</button>
+        <button id="chunkBtn" class="chunk" disabled>Send Test Chunk</button>
+        <button id="stopBtn" class="stop" disabled>Stop Session</button>
+        <button id="disconnectBtn" class="stop" disabled>Disconnect</button>
+    </div>
+    
+    <h3>Session Info:</h3>
+    <div id="sessionInfo">No active session</div>
+    
+    <h3>Transcript:</h3>
+    <div id="transcript" class="log">No transcript yet...</div>
+    
+    <h3>Log:</h3>
+    <div id="log" class="log"></div>
+
+    <script>
+        let ws = null;
+        let sessionId = null;
+        let chunkIndex = 0;
+        
+        const statusDiv = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const startBtn = document.getElementById('startBtn');
+        const chunkBtn = document.getElementById('chunkBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const sessionInfoDiv = document.getElementById('sessionInfo');
+        const transcriptDiv = document.getElementById('transcript');
+        const logDiv = document.getElementById('log');
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateStatus(connected) {
+            if (connected) {
+                statusDiv.textContent = 'Connected';
+                statusDiv.className = 'status connected';
+                connectBtn.disabled = true;
+                startBtn.disabled = false;
+                disconnectBtn.disabled = false;
+            } else {
+                statusDiv.textContent = 'Disconnected';
+                statusDiv.className = 'status disconnected';
+                connectBtn.disabled = false;
+                startBtn.disabled = true;
+                chunkBtn.disabled = true;
+                stopBtn.disabled = true;
+                disconnectBtn.disabled = true;
+            }
+        }
+        
+        function updateSessionInfo(info) {
+            sessionInfoDiv.innerHTML = info;
+        }
+        
+        function updateTranscript(text) {
+            transcriptDiv.innerHTML = text;
+        }
+        
+        // Connect to WebSocket
+        connectBtn.onclick = function() {
+            log('Connecting to WebSocket...');
+            ws = new WebSocket('ws://localhost:3000/ws');
+            
+            ws.onopen = function() {
+                log('✅ WebSocket connected');
+                updateStatus(true);
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`📨 Received: ${JSON.stringify(data)}`);
+                    
+                    switch (data.type) {
+                        case 'session_started':
+                            sessionId = data.sessionId;
+                            updateSessionInfo(`Session ID: ${sessionId}<br>Status: ${data.status}`);
+                            chunkBtn.disabled = false;
+                            stopBtn.disabled = false;
+                            log(`✅ Session started: ${sessionId}`);
+                            break;
+                            
+                        case 'transcription_update':
+                            updateTranscript(data.fullTranscript || data.text);
+                            log(`📝 Transcription: ${data.text}`);
+                            break;
+                            
+                        case 'chunk_acknowledged':
+                            log(`✅ Chunk ${data.chunkIndex} acknowledged`);
+                            break;
+                            
+                        case 'session_completed':
+                            updateSessionInfo(`Session completed<br>Duration: ${data.duration}ms<br>Chunks: ${data.totalChunks}`);
+                            chunkBtn.disabled = true;
+                            stopBtn.disabled = true;
+                            log(`✅ Session completed: ${data.finalTranscript?.length || 0} chars`);
+                            break;
+                            
+                        case 'error':
+                            log(`❌ Error: ${data.error}`);
+                            break;
+                            
+                        default:
+                            log(`⚠️ Unknown message type: ${data.type}`);
+                    }
+                } catch (error) {
+                    log(`❌ Failed to parse message: ${error.message}`);
+                }
+            };
+            
+            ws.onclose = function() {
+                log('🔌 WebSocket disconnected');
+                updateStatus(false);
+                sessionId = null;
+                chunkIndex = 0;
+                updateSessionInfo('No active session');
+                updateTranscript('No transcript yet...');
+            };
+            
+            ws.onerror = function(error) {
+                log(`❌ WebSocket error: ${error}`);
+            };
+        };
+        
+        // Start session
+        startBtn.onclick = function() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('❌ WebSocket not connected');
+                return;
+            }
+            
+            const message = {
+                type: 'start_session',
+                sessionId: null
+            };
+            
+            ws.send(JSON.stringify(message));
+            log('🎬 Starting session...');
+        };
+        
+        // Send test audio chunk
+        chunkBtn.onclick = function() {
+            if (!ws || ws.readyState !== WebSocket.OPEN || !sessionId) {
+                log('❌ No active session');
+                return;
+            }
+            
+            // Create a dummy audio chunk (1 second of silence)
+            const sampleRate = 16000;
+            const duration = 1.0;
+            const samples = new Int16Array(sampleRate * duration);
+            
+            // Convert to WAV format
+            const wavData = createWAV(samples, sampleRate, 1);
+            const base64Audio = btoa(String.fromCharCode(...new Uint8Array(wavData)));
+            
+            const message = {
+                type: 'audio_chunk',
+                sessionId: sessionId,
+                audioData: base64Audio,
+                chunkIndex: chunkIndex++
+            };
+            
+            ws.send(JSON.stringify(message));
+            log(`📤 Sending audio chunk ${chunkIndex - 1} (${wavData.byteLength} bytes)`);
+        };
+        
+        // Stop session
+        stopBtn.onclick = function() {
+            if (!ws || ws.readyState !== WebSocket.OPEN || !sessionId) {
+                log('❌ No active session');
+                return;
+            }
+            
+            const message = {
+                type: 'stop_session',
+                sessionId: sessionId
+            };
+            
+            ws.send(JSON.stringify(message));
+            log('🛑 Stopping session...');
+        };
+        
+        // Disconnect
+        disconnectBtn.onclick = function() {
+            if (ws) {
+                ws.close();
+            }
+        };
+        
+        // Create WAV file from audio samples
+        function createWAV(samples, sampleRate, channels) {
+            const bytesPerSample = 2;
+            const dataSize = samples.length * bytesPerSample;
+            const fileSize = 44 + dataSize;
+            
+            const buffer = new ArrayBuffer(fileSize);
+            const view = new DataView(buffer);
+            
+            let offset = 0;
+            
+            // RIFF header
+            writeString(view, offset, 'RIFF'); offset += 4;
+            view.setUint32(offset, fileSize - 8, true); offset += 4;
+            writeString(view, offset, 'WAVE'); offset += 4;
+            
+            // Format chunk
+            writeString(view, offset, 'fmt '); offset += 4;
+            view.setUint32(offset, 16, true); offset += 4;
+            view.setUint16(offset, 1, true); offset += 2; // PCM
+            view.setUint16(offset, channels, true); offset += 2;
+            view.setUint32(offset, sampleRate, true); offset += 4;
+            view.setUint32(offset, sampleRate * channels * bytesPerSample, true); offset += 4;
+            view.setUint16(offset, channels * bytesPerSample, true); offset += 2;
+            view.setUint16(offset, bytesPerSample * 8, true); offset += 2;
+            
+            // Data chunk
+            writeString(view, offset, 'data'); offset += 4;
+            view.setUint32(offset, dataSize, true); offset += 4;
+            
+            // Audio data
+            for (let i = 0; i < samples.length; i++) {
+                view.setInt16(offset, samples[i], true);
+                offset += 2;
+            }
+            
+            return buffer;
+        }
+        
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+        
+        log('Ready to test WebSocket audio streaming');
+    </script>
+</body>
+</html>
