@@ -52,35 +52,194 @@ final class SessionTranscriptStore {
     
     // MARK: - Directory Setup
     private func getTranscriptsDirectory() throws -> URL {
-        // Use the user's actual Documents directory, not the app bundle
-        // First try the user's Documents folder directly
-        let userDocumentsPath = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
-        let transcriptsPath = userDocumentsPath.appendingPathComponent(transcriptsDirectory)
+        print("🔍 DEBUG: getTranscriptsDirectory called")
         
-        // Check if we can write to the user's Documents folder
-        if fileManager.isWritableFile(atPath: userDocumentsPath.path) {
-            if !fileManager.fileExists(atPath: transcriptsPath.path) {
-                try fileManager.createDirectory(at: transcriptsPath, withIntermediateDirectories: true)
-                print("📁 Created transcripts directory at: \(transcriptsPath.path)")
+        // Try to get the REAL user's Documents folder using system APIs
+        let realUserDocuments = getRealUserDocumentsFolder()
+        print("🔍 DEBUG: Real user Documents path: \(realUserDocuments.path)")
+        
+        // Check if this is NOT the sandboxed container
+        if !realUserDocuments.path.contains("Library/Containers") {
+            print("✅ Found real user Documents folder, not sandboxed")
+            
+            let userTranscriptsPath = realUserDocuments.appendingPathComponent(transcriptsDirectory)
+            print("🔍 DEBUG: User transcripts path: \(userTranscriptsPath.path)")
+            
+            // Create directory if it doesn't exist
+            if !fileManager.fileExists(atPath: userTranscriptsPath.path) {
+                print("🔍 DEBUG: User transcripts directory doesn't exist, creating...")
+                do {
+                    try fileManager.createDirectory(at: userTranscriptsPath, withIntermediateDirectories: true, attributes: nil)
+                    print("📁 Created user transcripts directory at: \(userTranscriptsPath.path)")
+                } catch {
+                    print("⚠️ Failed to create user transcripts directory: \(error.localizedDescription)")
+                }
             } else {
-                print("📁 Using existing transcripts directory at: \(transcriptsPath.path)")
+                print("📁 Using existing user transcripts directory at: \(userTranscriptsPath.path)")
             }
-            return transcriptsPath
+            
+            // Test write access to user's Documents folder
+            let testFile = userTranscriptsPath.appendingPathComponent(".user_test")
+            print("🔍 DEBUG: Testing write access to real user Documents: \(testFile.path)")
+            
+            do {
+                try "test".write(to: testFile, atomically: true, encoding: .utf8)
+                print("🔍 DEBUG: Real user Documents write test successful")
+                try fileManager.removeItem(at: testFile)
+                print("🔍 DEBUG: Real user Documents test file removed")
+                print("✅ Using real user's Documents folder")
+                return userTranscriptsPath
+            } catch {
+                print("⚠️ Cannot write to real user's Documents folder: \(error.localizedDescription)")
+                print("🔄 Falling back to other locations...")
+            }
         } else {
-            // Fallback to app's Documents directory if user's Documents is not writable
-            let appDocumentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-            let fallbackPath = appDocumentsPath.appendingPathComponent(transcriptsDirectory)
+            print("⚠️ Real user Documents path is still sandboxed, trying alternatives...")
+        }
+        
+        // Fallback locations
+        let fallbackLocations = [
+            ("User Desktop", getRealUserDesktopFolder()),
+            ("App Documents", fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!)
+        ]
+        
+        for (locationName, basePath) in fallbackLocations {
+            let transcriptsPath = basePath.appendingPathComponent(transcriptsDirectory)
+            print("🔍 DEBUG: Trying fallback \(locationName): \(transcriptsPath.path)")
             
-            if !fileManager.fileExists(atPath: fallbackPath.path) {
-                try fileManager.createDirectory(at: fallbackPath, withIntermediateDirectories: true)
-                print("📁 Created fallback transcripts directory at: \(fallbackPath.path)")
-            } else {
-                print("📁 Using fallback transcripts directory at: \(fallbackPath.path)")
+            // Skip if this is the sandboxed container (we want the real user folder)
+            if transcriptsPath.path.contains("Library/Containers") && locationName != "App Documents" {
+                print("⚠️ Skipping sandboxed container: \(transcriptsPath.path)")
+                continue
             }
             
-            print("⚠️ Using fallback directory - user's Documents folder is not writable")
-            return fallbackPath
+            // Create directory if it doesn't exist
+            if !fileManager.fileExists(atPath: transcriptsPath.path) {
+                print("🔍 DEBUG: Fallback transcripts directory doesn't exist, creating...")
+                do {
+                    try fileManager.createDirectory(at: transcriptsPath, withIntermediateDirectories: true, attributes: nil)
+                    print("📁 Created fallback transcripts directory at: \(transcriptsPath.path)")
+                } catch {
+                    print("⚠️ Failed to create fallback directory at \(locationName): \(error.localizedDescription)")
+                    continue
+                }
+            } else {
+                print("📁 Using existing fallback transcripts directory at: \(transcriptsPath.path)")
+            }
+            
+            // Verify we can write to this directory
+            let testFile = transcriptsPath.appendingPathComponent(".fallback_test")
+            print("🔍 DEBUG: Testing fallback write access: \(testFile.path)")
+            
+            do {
+                try "test".write(to: testFile, atomically: true, encoding: .utf8)
+                print("🔍 DEBUG: Fallback write test successful")
+                try fileManager.removeItem(at: testFile)
+                print("🔍 DEBUG: Fallback test file removed")
+                print("✅ Using fallback location: \(locationName)")
+                return transcriptsPath
+            } catch {
+                print("⚠️ Cannot write to fallback \(locationName): \(error.localizedDescription)")
+                continue
+            }
         }
+        
+        // Last resort: app's Documents directory
+        print("❌ All locations failed, using app's Documents directory as last resort")
+        let appDocumentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let lastResortPath = appDocumentsPath.appendingPathComponent(transcriptsDirectory)
+        
+        if !fileManager.fileExists(atPath: lastResortPath.path) {
+            try fileManager.createDirectory(at: lastResortPath, withIntermediateDirectories: true, attributes: nil)
+            print("📁 Created last resort transcripts directory at: \(lastResortPath.path)")
+        }
+        
+        return lastResortPath
+    }
+    
+    // MARK: - Real User Directory Access
+    private func getRealUserDocumentsFolder() -> URL {
+        // Try multiple methods to get the real user Documents folder
+        
+        // Method 1: Use NSHomeDirectory() which might bypass some sandbox restrictions
+        let nsHomeDir = NSHomeDirectory()
+        let nsDocuments = (nsHomeDir as NSString).appendingPathComponent("Documents")
+        print("🔍 DEBUG: NSHomeDirectory Documents: \(nsDocuments)")
+        
+        if !nsDocuments.contains("Library/Containers") {
+            print("✅ NSHomeDirectory found real user Documents")
+            return URL(fileURLWithPath: nsDocuments)
+        }
+        
+        // Method 2: Try to construct from /Users/username
+        let username = NSUserName()
+        let userDocuments = "/Users/\(username)/Documents"
+        print("🔍 DEBUG: Constructed user Documents: \(userDocuments)")
+        
+        if fileManager.fileExists(atPath: userDocuments) {
+            print("✅ Constructed path found real user Documents")
+            return URL(fileURLWithPath: userDocuments)
+        }
+        
+        // Method 3: Try to get from environment variables
+        if let homeEnv = ProcessInfo.processInfo.environment["HOME"] {
+            let envDocuments = (homeEnv as NSString).appendingPathComponent("Documents")
+            print("🔍 DEBUG: Environment HOME Documents: \(envDocuments)")
+            
+            if !envDocuments.contains("Library/Containers") && fileManager.fileExists(atPath: envDocuments) {
+                print("✅ Environment HOME found real user Documents")
+                return URL(fileURLWithPath: envDocuments)
+            }
+        }
+        
+        // Method 4: Try to access via shell command (last resort)
+        let shellDocuments = getDocumentsViaShell()
+        if !shellDocuments.isEmpty && !shellDocuments.contains("Library/Containers") {
+            print("✅ Shell command found real user Documents: \(shellDocuments)")
+            return URL(fileURLWithPath: shellDocuments)
+        }
+        
+        // If all methods fail, return the sandboxed path
+        print("⚠️ All methods failed, returning sandboxed path")
+        return fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
+    }
+    
+    private func getRealUserDesktopFolder() -> URL {
+        // Similar logic for Desktop folder
+        let username = NSUserName()
+        let userDesktop = "/Users/\(username)/Desktop"
+        
+        if fileManager.fileExists(atPath: userDesktop) {
+            print("✅ Found real user Desktop: \(userDesktop)")
+            return URL(fileURLWithPath: userDesktop)
+        }
+        
+        // Fallback to sandboxed path
+        return fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
+    }
+    
+    private func getDocumentsViaShell() -> String {
+        // Try to get Documents folder via shell command
+        let task = Process()
+        task.launchPath = "/bin/bash"
+        task.arguments = ["-c", "echo $HOME/Documents"]
+        
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        
+        do {
+            try task.run()
+            task.waitUntilExit()
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) {
+                return output
+            }
+        } catch {
+            print("⚠️ Shell command failed: \(error.localizedDescription)")
+        }
+        
+        return ""
     }
     
     // MARK: - Session Lifecycle
@@ -126,11 +285,13 @@ final class SessionTranscriptStore {
         }
         
         print("🔍 DEBUG: Current session: \(session.sessionId), started at: \(session.startTime)")
+        print("🔍 DEBUG: Session has \(session.segments.count) segments")
         
         session.endTime = Date()
         session.segments = transcriptSegments
         
         print("🔍 DEBUG: About to save session with \(session.segments.count) segments")
+        print("🔍 DEBUG: Session duration: \(session.endTime!.timeIntervalSince(session.startTime)) seconds")
         
         do {
             let savedURL = try await saveSessionTranscript(session)
@@ -163,6 +324,7 @@ final class SessionTranscriptStore {
         print("🔍 DEBUG: Generated content length: \(content.count) characters")
         print("🔍 DEBUG: Content preview: \(content.prefix(200))...")
         
+        print("🔍 DEBUG: Attempting to write file...")
         try content.write(to: fileURL, atomically: true, encoding: .utf8)
         print("🔍 DEBUG: File written successfully")
         
@@ -171,6 +333,7 @@ final class SessionTranscriptStore {
             let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
             let fileSize = attributes[.size] as? Int ?? 0
             print("🔍 DEBUG: File verified - size: \(fileSize) bytes")
+            print("🔍 DEBUG: File attributes: \(attributes)")
         } else {
             print("❌ DEBUG: File was not created!")
         }
@@ -290,6 +453,127 @@ final class SessionTranscriptStore {
         } catch {
             return "Error: \(error.localizedDescription)"
         }
+    }
+    
+    func testWriteAccess() -> Bool {
+        do {
+            let transcriptsDir = try getTranscriptsDirectory()
+            let testFile = transcriptsDir.appendingPathComponent(".write_test")
+            
+            try "test".write(to: testFile, atomically: true, encoding: .utf8)
+            try fileManager.removeItem(at: testFile)
+            
+            print("✅ Write access test successful at: \(transcriptsDir.path)")
+            return true
+        } catch {
+            print("❌ Write access test failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+    
+    func forceUseUserDocuments() -> String {
+        print("🔄 Force using user's actual Documents folder...")
+        
+        let userDocumentsPath = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
+        let transcriptsPath = userDocumentsPath.appendingPathComponent(transcriptsDirectory)
+        
+        print("🔍 DEBUG: User Documents path: \(userDocumentsPath.path)")
+        print("🔍 DEBUG: Target transcripts path: \(transcriptsPath.path)")
+        
+        do {
+            // Create directory if it doesn't exist
+            if !fileManager.fileExists(atPath: transcriptsPath.path) {
+                try fileManager.createDirectory(at: transcriptsPath, withIntermediateDirectories: true, attributes: nil)
+                print("📁 Created transcripts directory at: \(transcriptsPath.path)")
+            }
+            
+            // Test write access
+            let testFile = transcriptsPath.appendingPathComponent(".force_test")
+            try "test".write(to: testFile, atomically: true, encoding: .utf8)
+            try fileManager.removeItem(at: testFile)
+            
+            print("✅ Force write test successful at: \(transcriptsPath.path)")
+            return transcriptsPath.path
+        } catch {
+            print("❌ Force write test failed: \(error.localizedDescription)")
+            return "Error: \(error.localizedDescription)"
+        }
+    }
+    
+    func checkAppPermissions() -> String {
+        print("🔍 Checking app permissions and sandbox status...")
+        
+        var status = "App Permission Check:\n"
+        
+        // Check if we're in a sandbox
+        let isSandboxed = Bundle.main.appStoreReceiptURL != nil
+        status += "• Sandboxed: \(isSandboxed ? "YES" : "NO")\n"
+        
+        // Check home directory access
+        let homeDir = fileManager.homeDirectoryForCurrentUser
+        status += "• Home directory: \(homeDir.path)\n"
+        
+        // Check if home directory contains "Containers" (sandboxed)
+        let isHomeSandboxed = homeDir.path.contains("Library/Containers")
+        status += "• Home directory sandboxed: \(isHomeSandboxed ? "YES" : "NO")\n"
+        
+        // Check Documents directory access
+        let userDocs = homeDir.appendingPathComponent("Documents")
+        status += "• User Documents: \(userDocs.path)\n"
+        
+        // Check if Documents is writable
+        let isDocsWritable = fileManager.isWritableFile(atPath: userDocs.path)
+        status += "• User Documents writable: \(isDocsWritable ? "YES" : "NO")\n"
+        
+        // Check app's Documents directory
+        if let appDocs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+            status += "• App Documents: \(appDocs.path)\n"
+            let isAppDocsWritable = fileManager.isWritableFile(atPath: appDocs.path)
+            status += "• App Documents writable: \(isAppDocsWritable ? "YES" : "NO")\n"
+        }
+        
+        print(status)
+        return status
+    }
+    
+    func testRealUserDirectoryAccess() -> String {
+        print("🔍 Testing real user directory access methods...")
+        
+        var results = "Real User Directory Access Test:\n"
+        
+        // Test NSHomeDirectory
+        let nsHomeDir = NSHomeDirectory()
+        let nsDocuments = (nsHomeDir as NSString).appendingPathComponent("Documents")
+        let nsHomeSandboxed = nsDocuments.contains("Library/Containers")
+        results += "• NSHomeDirectory: \(nsDocuments) (Sandboxed: \(nsHomeSandboxed ? "YES" : "NO"))\n"
+        
+        // Test constructed path
+        let username = NSUserName()
+        let constructedDocs = "/Users/\(username)/Documents"
+        let constructedExists = fileManager.fileExists(atPath: constructedDocs)
+        results += "• Constructed path: \(constructedDocs) (Exists: \(constructedExists ? "YES" : "NO"))\n"
+        
+        // Test environment variable
+        if let homeEnv = ProcessInfo.processInfo.environment["HOME"] {
+            let envDocs = (homeEnv as NSString).appendingPathComponent("Documents")
+            let envSandboxed = envDocs.contains("Library/Containers")
+            results += "• Environment HOME: \(envDocs) (Sandboxed: \(envSandboxed ? "YES" : "NO"))\n"
+        } else {
+            results += "• Environment HOME: Not found\n"
+        }
+        
+        // Test shell command
+        let shellDocs = getDocumentsViaShell()
+        let shellSandboxed = shellDocs.contains("Library/Containers")
+        results += "• Shell command: \(shellDocs.isEmpty ? "Failed" : shellDocs) (Sandboxed: \(shellSandboxed ? "YES" : "NO"))\n"
+        
+        // Test our new method
+        let realDocs = getRealUserDocumentsFolder()
+        let realSandboxed = realDocs.path.contains("Library/Containers")
+        results += "• Our method result: \(realDocs.path) (Sandboxed: \(realSandboxed ? "YES" : "NO"))\n"
+        
+        print(results)
+        return results
     }
 }
 

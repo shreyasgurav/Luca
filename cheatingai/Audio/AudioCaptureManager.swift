@@ -50,6 +50,19 @@ final class AudioCaptureManager: NSObject {
         // Start transcript session
         SessionTranscriptStore.shared.startSession(sessionId: sessionId)
         
+        // ✅ FIX: Start local speech transcriber for real-time transcription
+        SpeechTranscriber.shared.start(
+            onPartial: { partialText in
+                // Optional: Show partial text in UI
+                print("🎙️ Partial: \(partialText)")
+            },
+            onFinal: { finalText in
+                // Store final local transcript
+                SessionTranscriptStore.shared.addLocalTranscript(finalText, confidence: 1.0)
+                print("📝 Local transcript: \(finalText)")
+            }
+        )
+        
         // Check and request screen recording permission
         Task {
             let hasPermission = await checkScreenRecordingPermission()
@@ -101,6 +114,10 @@ final class AudioCaptureManager: NSObject {
         do {
             try await startScreenCaptureWithAudio()
             setupAudioProcessing()
+            
+            // ✅ FIX: Set isRunning to true after successful capture start
+            isRunning = true
+            
             onStarted(true)
         } catch {
             print("❌ Failed to start professional audio capture: \(error.localizedDescription)")
@@ -160,6 +177,38 @@ final class AudioCaptureManager: NSObject {
         print("🛑 Stopping audio capture and screen recording...")
         isRunning = false
         
+        // ✅ FIX: Save any remaining audio BEFORE clearing buffers
+        if accumulatedSamples > 0, let sid = sessionId {
+            let wav = self.wavData(fromPCM16: accumulatingPCM, sampleRate: Int(targetSampleRate), channels: 1)
+            print("💾 DEBUG: Saving remaining audio: \(wav.count) bytes")
+            
+            // Add transcript segment for remaining audio
+            let remainingDuration = Double(accumulatedSamples) / targetSampleRate
+            SessionTranscriptStore.shared.addTranscriptSegment(
+                text: "[Final Audio] \(String(format: "%.1f", remainingDuration))s - \(wav.count) bytes - Session ending",
+                confidence: 1.0,
+                source: .local
+            )
+            
+            ClientAPI.shared.listenSendChunk(sessionId: sid, audioData: wav, startSec: nil, endSec: nil) { ok in
+                if ok {
+                    print("✅ DEBUG: Successfully sent final audio chunk")
+                    SessionTranscriptStore.shared.addTranscriptSegment(
+                        text: "[Final Chunk] Successfully sent to server",
+                        confidence: 1.0,
+                        source: .server
+                    )
+                } else {
+                    print("❌ DEBUG: Failed to send final audio chunk")
+                    SessionTranscriptStore.shared.addTranscriptSegment(
+                        text: "[Final Chunk] Failed to send to server",
+                        confidence: 0.0,
+                        source: .local
+                    )
+                }
+            }
+        }
+        
         // Stop screen capture properly with timeout and force cleanup
         Task {
             do {
@@ -206,46 +255,13 @@ final class AudioCaptureManager: NSObject {
             print("✅ Audio engine stopped")
         }
         
-        // Reset state
-        accumulatingPCM.removeAll(keepingCapacity: true)
-        accumulatedSamples = 0
-        lastNonSilenceAt = Date()
-        lastVoiceActivity = Date()
+        // ✅ FIX: Stop local speech transcriber
+        SpeechTranscriber.shared.stop()
         
-        // Save any remaining audio
-        if accumulatedSamples > 0, let sid = sessionId {
-            let wav = self.wavData(fromPCM16: accumulatingPCM, sampleRate: Int(targetSampleRate), channels: 1)
-            print("💾 DEBUG: Saving remaining audio: \(wav.count) bytes")
+        // ✅ FIX: Call ListenAPI.stop to get server transcript before finishing session
+        if let sid = sessionId {
+            print("🔄 Requesting server transcript for session: \(sid)")
             
-            // Add transcript segment for remaining audio
-            let remainingDuration = Double(accumulatedSamples) / targetSampleRate
-            SessionTranscriptStore.shared.addTranscriptSegment(
-                text: "[Final Audio] \(String(format: "%.1f", remainingDuration))s - \(wav.count) bytes - Session ending",
-                confidence: 1.0,
-                source: .local
-            )
-            
-            ClientAPI.shared.listenSendChunk(sessionId: sid, audioData: wav, startSec: nil, endSec: nil) { ok in
-                if ok {
-                    print("✅ DEBUG: Successfully sent final audio chunk")
-                    SessionTranscriptStore.shared.addTranscriptSegment(
-                        text: "[Final Chunk] Successfully sent to server",
-                        confidence: 1.0,
-                        source: .server
-                    )
-                } else {
-                    print("❌ DEBUG: Failed to send final audio chunk")
-                    SessionTranscriptStore.shared.addTranscriptSegment(
-                        text: "[Final Chunk] Failed to send to server",
-                        confidence: 0.0,
-                        source: .local
-                    )
-                }
-            }
-        }
-
-        // Save transcript and finish session
-        Task { @MainActor in
             // Add session summary transcript segment
             let sessionDuration = Date().timeIntervalSince(lastNonSilenceAt)
             let summaryText = "[Session Summary] Duration: \(String(format: "%.1f", sessionDuration))s - Audio capture completed"
@@ -255,27 +271,55 @@ final class AudioCaptureManager: NSObject {
                 source: .final
             )
             
-            if let transcriptURL = await SessionTranscriptStore.shared.finishSession() {
-                print("✅ Session transcript saved to: \(transcriptURL.path)")
+            // Call server to stop listening and get transcript
+            ClientAPI.shared.listenStop(sessionId: sid) { [weak self] result in
+                switch result {
+                case .success(let response):
+                    print("✅ Server transcript received")
+                    print("🔍 DEBUG: Server response: \(response)")
+                    // Server transcript is automatically added by ClientAPI.listenStop
+                    
+                case .failure(let error):
+                    print("❌ Failed to get server transcript: \(error)")
+                }
                 
-                // Add final confirmation transcript segment
-                SessionTranscriptStore.shared.addTranscriptSegment(
-                    text: "[Session Complete] Transcript saved to: \(transcriptURL.lastPathComponent)",
-                    confidence: 1.0,
-                    source: .final
-                )
-            } else {
-                print("❌ Failed to save session transcript")
-                
-                // Add error transcript segment
-                SessionTranscriptStore.shared.addTranscriptSegment(
-                    text: "[Error] Failed to save session transcript",
-                    confidence: 0.0,
-                    source: .final
-                )
+                // Always finish the session and save transcript file
+                Task { @MainActor in
+                    if let transcriptURL = await SessionTranscriptStore.shared.finishSession() {
+                        print("✅ Session transcript saved to: \(transcriptURL.path)")
+                        
+                        // Add final confirmation transcript segment
+                        SessionTranscriptStore.shared.addTranscriptSegment(
+                            text: "[Session Complete] Transcript saved to: \(transcriptURL.lastPathComponent)",
+                            confidence: 1.0,
+                            source: .final
+                        )
+                    } else {
+                        print("❌ Failed to save session transcript")
+                        
+                        // Add error transcript segment
+                        SessionTranscriptStore.shared.addTranscriptSegment(
+                            text: "[Error] Failed to save session transcript",
+                            confidence: 0.0,
+                            source: .final
+                        )
+                    }
+                    
+                    // Reset state
+                    self?.sessionId = nil
+                    completion()
+                }
             }
+        } else {
+            print("⚠️ No session ID available")
             completion()
         }
+        
+        // ✅ FIX: Clear buffers AFTER saving and requesting server transcript
+        accumulatingPCM.removeAll(keepingCapacity: true)
+        accumulatedSamples = 0
+        lastNonSilenceAt = Date()
+        lastVoiceActivity = Date()
         
         print("✅ Audio capture and screen recording stopped completely")
     }
@@ -381,141 +425,44 @@ final class AudioCaptureManager: NSObject {
     // MARK: - Audio Processing (from screen capture)
     
     private func processAudioFromSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-        print("🔍 DEBUG: Starting audio processing from sample buffer")
-        guard let converter, let targetFormat else { 
-            print("❌ DEBUG: Missing converter or target format")
-            return 
+        guard isRunning else { return }
+        
+        // Extract audio data from sample buffer
+        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        
+        var length = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        let status = CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: &length, totalLengthOut: nil, dataPointerOut: &dataPointer)
+        
+        guard status == kCMBlockBufferNoErr, let dataPointer = dataPointer else { return }
+        
+        // Convert to PCM16 samples
+        let samples = dataPointer.withMemoryRebound(to: Int16.self, capacity: length / 2) { pointer in
+            Array(UnsafeBufferPointer(start: pointer, count: length / 2))
         }
         
-        // Convert CMSampleBuffer to AVAudioPCMBuffer
-        guard let pcmBuffer = convertSampleBufferToPCMBuffer(sampleBuffer) else {
-            print("❌ DEBUG: Failed to convert CMSampleBuffer to PCMBuffer")
-            return
+        // ✅ FIX: Convert Int16 samples to Data before appending
+        let sampleData = Data(bytes: samples, count: samples.count * MemoryLayout<Int16>.size)
+        accumulatingPCM.append(sampleData)
+        accumulatedSamples += samples.count
+        
+        // ✅ FIX: Feed audio to local speech transcriber for real-time recognition
+        if let audioBuffer = createAudioBuffer(from: samples) {
+            SpeechTranscriber.shared.append(audioBuffer)
         }
         
-        print("✅ DEBUG: Successfully converted to PCMBuffer: \(pcmBuffer.frameLength) frames")
-        
-        // Apply audio preprocessing
-        let processedBuffer = preprocessAudio(pcmBuffer)
-        print("✅ DEBUG: Audio preprocessing completed")
-        
-        let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
-            outStatus.pointee = .haveData
-            return processedBuffer ?? pcmBuffer
+        // Check if we have enough samples to send a chunk
+        if accumulatedSamples >= Int(targetSampleRate * maxChunkDuration) {
+            sendAudioChunk()
         }
         
-        guard let converted = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: AVAudioFrameCount(pcmBuffer.frameLength)) else { 
-            print("❌ DEBUG: Failed to create converted buffer")
-            return 
-        }
-        
-        var error: NSError?
-        let status = converter.convert(to: converted, error: &error, withInputFrom: inputBlock)
-        
-        if status != .haveData { 
-            print("❌ DEBUG: Audio conversion failed with status: \(status)")
-            return 
-        }
-        
-        print("✅ DEBUG: Audio conversion successful: \(converted.frameLength) frames")
-        
-        // Process the audio data
-        let frames = Int(converted.frameLength)
-        let byteCount = frames * MemoryLayout<Int16>.size
-        var data = Data()
-        
-        if let ch0 = converted.floatChannelData?[0] {
-            // Convert Float32 to Int16 for processing
-            var int16Data = [Int16](repeating: 0, count: frames)
-            for i in 0..<frames {
-                let floatSample = ch0[i]
-                // Clamp to valid range and convert to Int16
-                let clampedSample = max(-1.0, min(1.0, floatSample))
-                int16Data[i] = Int16(clampedSample * Float(Int16.max))
-            }
-            data = Data(bytes: int16Data, count: byteCount)
-            print("✅ DEBUG: Audio data extracted: \(data.count) bytes")
-        } else {
-            print("❌ DEBUG: Failed to get audio channel data")
-            return
-        }
-        
-        accumulatingPCM.append(data)
-        accumulatedSamples += frames
-        
-        print("📊 DEBUG: Accumulated: \(accumulatedSamples) samples, total: \(accumulatingPCM.count) bytes")
-        
-        // Voice Activity Detection
-        let energy = calculateAudioEnergy(converted)
-        let isVoiceActive = energy > voiceThreshold
-        
-        if isVoiceActive {
+        // Update voice activity detection
+        // ✅ FIX: Convert to Double before multiplication to prevent Int16 overflow
+        let rms = sqrt(samples.map { Double($0) * Double($0) }.reduce(0, +) / Double(samples.count))
+        // ✅ FIX: Convert voiceThreshold to Double for comparison
+        if rms > Double(voiceThreshold) {
             lastVoiceActivity = Date()
             lastNonSilenceAt = Date()
-            print("🎤 DEBUG: Voice activity detected! Energy: \(energy)")
-        }
-        
-        // Smart chunking
-        let timeSinceLastVoice = Date().timeIntervalSince(lastVoiceActivity)
-        let shouldSendChunk = (accumulatedSamples >= Int(targetSampleRate * 2.0) && timeSinceLastVoice > 1.5) ||
-                             (accumulatedSamples >= Int(targetSampleRate * maxChunkDuration)) ||
-                             (accumulatedSamples >= Int(targetSampleRate * 1.0) && energy > voiceThreshold * 2)
-        
-        print("🔍 DEBUG: Chunk decision - shouldSend: \(shouldSendChunk), samples: \(accumulatedSamples), timeSinceVoice: \(timeSinceLastVoice)")
-        
-        if shouldSendChunk, let sid = sessionId {
-            print("🚀 DEBUG: Attempting to send audio chunk...")
-            
-            // Validate and send audio
-            let quality = validateAudioQuality(accumulatingPCM)
-            let shouldSend = quality.isAcceptable || 
-                           (quality.silenceRatio < 0.98 && quality.dynamicRange > -20)
-            
-            print("🔍 DEBUG: Audio quality - acceptable: \(quality.isAcceptable), silence: \(quality.silenceRatio), range: \(quality.dynamicRange)")
-            
-            if !shouldSend {
-                print("⚠️ Audio quality too poor: silence=\(String(format: "%.1f", quality.silenceRatio)), range=\(String(format: "%.1f", quality.dynamicRange))dB")
-                accumulatingPCM.removeAll(keepingCapacity: true)
-                accumulatedSamples = 0
-                return
-            }
-            
-            let wav = self.wavData(fromPCM16: accumulatingPCM, sampleRate: Int(targetSampleRate), channels: 1)
-            print("📤 DEBUG: Sending professional audio chunk: \(wav.count) bytes, quality=\(quality.isAcceptable ? "✅" : "⚠️")")
-            
-            // Add transcript segment for this audio chunk
-            let chunkDuration = Double(accumulatedSamples) / targetSampleRate
-            let transcriptText = "[Audio Chunk] \(String(format: "%.1f", chunkDuration))s - \(wav.count) bytes - Quality: \(quality.isAcceptable ? "Good" : "Acceptable")"
-            SessionTranscriptStore.shared.addTranscriptSegment(
-                text: transcriptText,
-                confidence: quality.isAcceptable ? 1.0 : 0.8,
-                source: .local
-            )
-            print("📝 DEBUG: Added transcript segment: \(transcriptText)")
-            
-            accumulatingPCM.removeAll(keepingCapacity: true)
-            accumulatedSamples = 0
-            lastNonSilenceAt = Date()
-            
-            ClientAPI.shared.listenSendChunk(sessionId: sid, audioData: wav, startSec: nil, endSec: nil) { ok in
-                if ok { 
-                    print("⬆️ DEBUG: Successfully sent audio chunk (\(wav.count) bytes) for session \(sid)")
-                    // Add server confirmation transcript segment
-                    SessionTranscriptStore.shared.addTranscriptSegment(
-                        text: "[Server Confirmed] Audio chunk received and processed",
-                        confidence: 1.0,
-                        source: .server
-                    )
-                } else { 
-                    print("❌ DEBUG: Failed to send audio chunk for session \(sid)")
-                    // Add error transcript segment
-                    SessionTranscriptStore.shared.addTranscriptSegment(
-                        text: "[Error] Failed to send audio chunk to server",
-                        confidence: 0.0,
-                        source: .local
-                    )
-                }
-            }
         }
     }
     
@@ -609,6 +556,68 @@ final class AudioCaptureManager: NSObject {
         return pcmBuffer
     }
     
+    // MARK: - Audio Processing Helpers
+    
+    private func createAudioBuffer(from samples: [Int16]) -> AVAudioPCMBuffer? {
+        let format = AVAudioFormat(standardFormatWithSampleRate: targetSampleRate, channels: 1)!
+        let frameCount = AVAudioFrameCount(samples.count)
+        
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            return nil
+        }
+        
+        buffer.frameLength = frameCount
+        
+        // Copy samples to buffer
+        if let channelData = buffer.int16ChannelData?[0] {
+            for (index, sample) in samples.enumerated() {
+                channelData[index] = sample
+            }
+        }
+        
+        return buffer
+    }
+    
+    private func sendAudioChunk() {
+        guard let sid = sessionId, accumulatedSamples > 0 else { return }
+        
+        let wav = self.wavData(fromPCM16: accumulatingPCM, sampleRate: Int(targetSampleRate), channels: 1)
+        let chunkDuration = Double(accumulatedSamples) / targetSampleRate
+        
+        print("📤 Sending audio chunk: \(String(format: "%.1f", chunkDuration))s - \(wav.count) bytes")
+        
+        // Add transcript segment for this audio chunk
+        let transcriptText = "[Audio Chunk] \(String(format: "%.1f", chunkDuration))s - \(wav.count) bytes"
+        SessionTranscriptStore.shared.addTranscriptSegment(
+            text: transcriptText,
+            confidence: 1.0,
+            source: .local
+        )
+        
+        ClientAPI.shared.listenSendChunk(sessionId: sid, audioData: wav, startSec: nil, endSec: nil) { ok in
+            if ok {
+                print("✅ Audio chunk sent successfully")
+                SessionTranscriptStore.shared.addTranscriptSegment(
+                    text: "[Server Confirmed] Audio chunk received",
+                    confidence: 1.0,
+                    source: .server
+                )
+            } else {
+                print("❌ Failed to send audio chunk")
+                SessionTranscriptStore.shared.addTranscriptSegment(
+                    text: "[Error] Failed to send audio chunk to server",
+                    confidence: 0.0,
+                    source: .local
+                )
+            }
+        }
+        
+        // Clear buffers after sending
+        accumulatingPCM.removeAll(keepingCapacity: true)
+        accumulatedSamples = 0
+        lastNonSilenceAt = Date()
+    }
+    
     // MARK: - Audio Quality Validation (Improved)
     
     private func validateAudioQuality(_ data: Data) -> AudioQuality {
@@ -646,18 +655,20 @@ final class AudioCaptureManager: NSObject {
     }
     
     private func calculateDynamicRange(_ data: Data) -> Float {
-        var minSample: Int16 = Int16.max
-        var maxSample: Int16 = Int16.min
+        var minSample: Int32 = Int32.max
+        var maxSample: Int32 = Int32.min
         
         data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
             let samples = ptr.bindMemory(to: Int16.self)
             for sample in samples {
-                minSample = min(minSample, sample)
-                maxSample = max(maxSample, sample)
+                // Convert Int16 to Int32 to prevent overflow
+                let sample32 = Int32(sample)
+                minSample = min(minSample, sample32)
+                maxSample = max(maxSample, sample32)
             }
         }
         
-        // Safe arithmetic to prevent overflow
+        // Safe arithmetic using Int32 to prevent overflow
         let range: Float
         if maxSample >= 0 && minSample >= 0 {
             // Both positive, safe subtraction

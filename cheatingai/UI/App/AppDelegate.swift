@@ -39,6 +39,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Migrate existing transcripts to user's Documents folder
         Task {
             await SessionTranscriptStore.shared.migrateExistingTranscripts()
+            
+            // Test write access to help debug transcript saving
+            let writeAccess = SessionTranscriptStore.shared.testWriteAccess()
+            print("🔍 DEBUG: Write access test result: \(writeAccess ? "SUCCESS" : "FAILED")")
+            print("🔍 DEBUG: Current save location: \(SessionTranscriptStore.shared.getCurrentSaveLocation())")
+            
+            // Force test user's Documents folder
+            let forceResult = SessionTranscriptStore.shared.forceUseUserDocuments()
+            print("🔍 DEBUG: Force user Documents test: \(forceResult)")
+            
+            // Check app permissions
+            let permissions = SessionTranscriptStore.shared.checkAppPermissions()
+            print("🔍 DEBUG: App permissions:\n\(permissions)")
+            
+            // Test real user directory access methods
+            let realDirTest = SessionTranscriptStore.shared.testRealUserDirectoryAccess()
+            print("🔍 DEBUG: Real directory access test:\n\(realDirTest)")
         }
 
         // Let AuthenticationManager handle all UI state changes
