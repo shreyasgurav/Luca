@@ -406,8 +406,12 @@ final class SessionTranscriptStore {
         print("🔍 DEBUG: generateTranscriptContent called for session: \(session.sessionId)")
         print("🔍 DEBUG: Session has \(session.segments.count) segments")
         
-        // Filter out any guidance/hint segments before exporting
-        let exportSegments = session.segments.filter { !isSystemAudioHint($0.text) }
+        // Only include actual speech-to-text transcripts from Deepgram STT
+        let transcriptSegments = session.segments.filter { 
+            $0.source == .server && // Only Deepgram STT results
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !isSystemAudioHint($0.text)
+        }
         
         var content = """
         SESSION TRANSCRIPT
@@ -415,23 +419,45 @@ final class SessionTranscriptStore {
         Session ID: \(session.sessionId)
         Start Time: \(formatDate(session.startTime))
         End Time: \(session.endTime.map { formatDate($0) } ?? "In Progress")
-        Total Segments: \(exportSegments.count)
-        
-        SUMMARY
-        -------
-        \(session.summary ?? "(Summary not available)")
-        
-        TRANSCRIPT
-        ----------
+        Total Transcript Segments: \(transcriptSegments.count)
         
         """
         
-        for (index, segment) in exportSegments.enumerated() {
-            content += segment.formattedEntry + "\n"
-            print("🔍 DEBUG: Added segment \(index + 1): \(segment.formattedEntry)")
+        // Only add summary if there are actual transcripts
+        if !transcriptSegments.isEmpty {
+            content += """
+            SUMMARY
+            -------
+            \(session.summary ?? "Audio transcription completed")
+            
+            TRANSCRIPT
+            ----------
+            
+            """
+            
+            // Add only the actual speech transcripts
+            for segment in transcriptSegments {
+                content += segment.formattedEntry + "\n"
+            }
+        } else {
+            content += """
+            SUMMARY
+            -------
+            No speech content detected or transcribed.
+            
+            TRANSCRIPT
+            ----------
+            No transcript content available.
+            
+            TROUBLESHOOTING:
+            - Check microphone permissions
+            - Ensure system audio is playing
+            - Verify Deepgram API key is configured
+            - Audio may have been silent or too quiet
+            """
         }
         
-        content += "\n\nEND OF TRANSCRIPT\n"
+        content += "\nEND OF TRANSCRIPT\n"
         
         print("🔍 DEBUG: Generated content length: \(content.count) characters")
         print("🔍 DEBUG: Content preview: \(content.prefix(200))...")
@@ -648,77 +674,190 @@ extension SessionTranscriptStore {
         print("🔍 DEBUG: addServerTranscript called with text: \(text.prefix(50))...")
         print("🔍 DEBUG: Current session: \(currentSessionTranscript?.sessionId ?? "NIL")")
         
-        // ✅ FIX: Add real-time deduplication for repetitive content
+        // Only add actual speech content from Deepgram STT
         let cleanedText = deduplicateRealtimeText(text)
         guard !cleanedText.isEmpty else {
-            print("🔍 Skipped duplicate/repetitive transcript: \(text)")
+            print("🔍 Skipped empty or duplicate transcript")
+            return
+        }
+        
+        // Verify this is actual speech content, not system messages
+        guard isActualSpeechContent(cleanedText) else {
+            print("🔍 Skipped system message: \(cleanedText)")
             return
         }
         
         addTranscriptSegment(text: cleanedText, confidence: 1.0, source: .server)
     }
     
-    // ✅ NEW: Real-time deduplication for live transcripts
+    // ✅ ENHANCED: Real-time deduplication for Deepgram transcripts
     private func deduplicateRealtimeText(_ text: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lower = trimmed.lowercased()
+        let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // Filter out common repetitive phrases
-        let repetitivePhrases = [
-            "thank you for watching",
-            "thank you for watching.",
-            "boom",
-            "bzzz",
-            "yeah yeah yeah",
-            "ok ok ok",
-            "right right right"
-        ]
+        // Skip empty text
+        guard !cleanedText.isEmpty else { return "" }
         
-        if repetitivePhrases.contains(lower) {
-            // Check if we already have this phrase in recent segments (last 10)
-            let recentSegments = transcriptSegments.suffix(10)
-            let recentTexts = recentSegments.map { $0.text.lowercased() }
+        // Skip very short utterances (likely noise)
+        guard cleanedText.count >= 3 else { return "" }
+        
+        // Check against recent segments to avoid duplicates
+        let recentSegments = transcriptSegments.suffix(10) // Check more segments for better deduplication
+        
+        for segment in recentSegments {
+            let similarity = calculateTextSimilarity(cleanedText, segment.text)
             
-            if recentTexts.contains(lower) {
-                print("🔍 Filtering duplicate phrase: \(trimmed)")
-                return "" // Skip this duplicate
-            }
-        }
-        
-        // Check for identical consecutive transcripts
-        if let lastSegment = transcriptSegments.last,
-           lastSegment.text.lowercased() == lower {
-            print("🔍 Filtering consecutive duplicate: \(trimmed)")
-            return "" // Skip consecutive identical text
-        }
-        
-        // Check for very similar text (edit distance)
-        if let lastSegment = transcriptSegments.last {
-            let similarity = calculateStringSimilarity(lastSegment.text.lowercased(), lower)
-            if similarity > 0.9 { // 90% similar
-                print("🔍 Filtering very similar text: \(trimmed)")
+            // If 85%+ similar, consider it a duplicate (slightly more strict for Deepgram)
+            if similarity > 0.85 {
+                print("🔍 Skipped duplicate transcript (similarity: \(String(format: "%.2f", similarity))): \(cleanedText)")
                 return ""
             }
         }
         
-        return trimmed
+        // Check for repetitive patterns (e.g., "Thank you for watching" repeated)
+        if isRepetitiveContent(cleanedText) {
+            print("🔍 Skipped repetitive content: \(cleanedText)")
+            return ""
+        }
+        
+        // Check for Deepgram-specific artifacts
+        if isDeepgramArtifact(cleanedText) {
+            print("🔍 Skipped Deepgram artifact: \(cleanedText)")
+            return ""
+        }
+        
+        return cleanedText
     }
     
-    // ✅ NEW: Calculate string similarity using simple character comparison
-    private func calculateStringSimilarity(_ str1: String, _ str2: String) -> Double {
-        let len1 = str1.count
-        let len2 = str2.count
-        let maxLen = max(len1, len2)
+    // ✅ NEW: Detect Deepgram-specific artifacts that should be filtered
+    private func isDeepgramArtifact(_ text: String) -> Bool {
+        let lowerText = text.lowercased()
         
-        guard maxLen > 0 else { return 1.0 }
+        // Common Deepgram artifacts
+        let artifacts = [
+            "uh",
+            "um",
+            "ah",
+            "eh",
+            "oh",
+            "hmm",
+            "mm",
+            "mhm",
+            "uh-huh",
+            "mm-hmm",
+            "you know",
+            "like",
+            "so",
+            "well",
+            "actually",
+            "basically",
+            "literally",
+            "i mean",
+            "you see",
+            "right?",
+            "okay?",
+            "alright?",
+            "..."
+        ]
         
-        let commonChars = Set(str1).intersection(Set(str2)).count
-        return Double(commonChars) / Double(maxLen)
+        // Check if text is only artifacts
+        let words = lowerText.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+        
+        // If all words are artifacts, filter it out
+        let nonArtifactWords = words.filter { word in
+            !artifacts.contains(word.trimmingCharacters(in: .punctuationCharacters))
+        }
+        
+        // Filter if 80% or more of the words are artifacts
+        let artifactRatio = Double(words.count - nonArtifactWords.count) / Double(words.count)
+        return artifactRatio >= 0.8
+    }
+    
+    // ✅ NEW: Calculate text similarity using Jaccard similarity
+    private func calculateTextSimilarity(_ text1: String, _ text2: String) -> Double {
+        let words1 = Set(text1.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
+        let words2 = Set(text2.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
+        
+        guard !words1.isEmpty || !words2.isEmpty else { return 0.0 }
+        
+        let intersection = words1.intersection(words2)
+        let union = words1.union(words2)
+        
+        return Double(intersection.count) / Double(union.count)
+    }
+    
+    // ✅ NEW: Detect repetitive content patterns
+    private func isRepetitiveContent(_ text: String) -> Bool {
+        let lowerText = text.lowercased()
+        
+        // Common repetitive phrases
+        let repetitivePhrases = [
+            "thank you for watching",
+            "thanks for watching",
+            "please like and subscribe",
+            "don't forget to subscribe",
+            "hit the like button",
+            "comment below",
+            "see you next time",
+            "until next time",
+            "goodbye",
+            "bye",
+            "end of video",
+            "end of stream"
+        ]
+        
+        // Check if text matches any repetitive phrase
+        for phrase in repetitivePhrases {
+            if lowerText.contains(phrase) {
+                return true
+            }
+        }
+        
+        // Check for repeated words (e.g., "you you you")
+        let words = lowerText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        if words.count >= 3 {
+            for i in 0..<(words.count - 2) {
+                if words[i] == words[i+1] && words[i+1] == words[i+2] {
+                    return true
+                }
+            }
+        }
+        
+        return false
     }
     
     // For final processed transcript
     func addFinalTranscript(_ text: String) {
         addTranscriptSegment(text: text, confidence: 1.0, source: .final)
+    }
+    
+    // ✅ NEW: Check if text is actual speech content vs system message
+    private func isActualSpeechContent(_ text: String) -> Bool {
+        let lowerText = text.lowercased()
+        
+        // Skip system messages and metadata
+        let systemPatterns = [
+            "session summary",
+            "duration:",
+            "audio capture completed",
+            "mock transcript",
+            "transcription error",
+            "no speech detected",
+            "transcription failed"
+        ]
+        
+        for pattern in systemPatterns {
+            if lowerText.contains(pattern) {
+                return false
+            }
+        }
+        
+        // Skip very short or repetitive content
+        if text.count < 3 || isRepetitiveContent(text) {
+            return false
+        }
+        
+        return true
     }
 }
 
@@ -777,3 +916,4 @@ extension SessionTranscriptStore: ObservableObject {
         }
     }
 }
+

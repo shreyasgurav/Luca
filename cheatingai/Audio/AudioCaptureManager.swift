@@ -3,6 +3,7 @@ import AVFoundation
 import ScreenCaptureKit
 import AppKit
 import CoreGraphics
+import Combine
 
 // MARK: - Audio Quality Models
 
@@ -14,8 +15,13 @@ struct AudioQuality {
 }
 
 @MainActor
-final class AudioCaptureManager: NSObject {
+final class AudioCaptureManager: NSObject, ObservableObject {
     static let shared = AudioCaptureManager()
+
+    // MARK: - Published Properties for UI
+    @Published var isListening = false
+    @Published var liveTranscript = ""
+    @Published var connectionStatus = "Ready"
 
     // MARK: - Professional Audio Capture Properties
     private var screenCaptureSession: SCStream?
@@ -23,16 +29,22 @@ final class AudioCaptureManager: NSObject {
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
     
+    // MARK: - Deepgram STT Integration
+    private let deepgramSTT = DeepgramSTT()
+    private var cancellables = Set<AnyCancellable>()
+    
     // Audio processing
     private var accumulatingPCM = Data()
     private var accumulatedSamples: Int = 0
     private let targetSampleRate: Double = 16_000
-    private let chunkSeconds: Double = 3
-    private var samplesPerChunk: Int { Int(targetSampleRate * chunkSeconds) }
+    private let chunkSizeBytes = DeepgramConfig.chunkSizeBytes // 50ms chunks for real-time
+    private var samplesPerChunk: Int { chunkSizeBytes / 2 } // 16-bit samples
     
     // Session management
     private var sessionId: String?
+    private var sessionStartTime: Date?
     private var isRunning = false
+    private var finalizedSegments: [SessionTranscriptStore.TranscriptSegment] = []
     private var debugBufferCount: Int = 0
     private var lastNonSilenceAt: Date = Date()
     private var lastVoiceActivity: Date = Date()
@@ -44,48 +56,314 @@ final class AudioCaptureManager: NSObject {
     // Screen recording permission
     private var hasScreenRecordingPermission = false
     
-    // WebSocket integration
-    private var useWebSocket = true
+    // Legacy WebSocket support (for backward compatibility)
+    private var useWebSocket = false // Disabled in favor of Deepgram
     private var webSocketTranscript = ""
 
-    func startListening(sessionId: String, onStarted: @escaping (Bool) -> Void) {
-        guard !isRunning else { onStarted(true); return }
+    // MARK: - Initialization
+    
+    override init() {
+        super.init()
+        setupDeepgramIntegration()
+    }
+    
+    // MARK: - Public Interface
+    
+    /// Start listening with Deepgram STT
+    func startListening(sessionId: String? = nil, onStarted: @escaping (Bool) -> Void) {
+        guard !isListening else { onStarted(true); return }
+        
+        let sessionId = sessionId ?? UUID().uuidString
         self.sessionId = sessionId
+        self.sessionStartTime = Date()
         
-        // Start transcript session
-        SessionTranscriptStore.shared.startSession(sessionId: sessionId)
-        
-        // ✅ NEW: Initialize WebSocket connection for real-time transcription
-        if useWebSocket {
-            setupWebSocket()
-        }
-        
-        // ✅ FIX: Only use local speech transcriber as fallback if WebSocket fails
-        if !useWebSocket {
-        SpeechTranscriber.shared.start(
-            onPartial: { partialText in
-                // Optional: Show partial text in UI
-                print("🎙️ Partial: \(partialText)")
-            },
-            onFinal: { finalText in
-                    // Store final local transcript (only when WebSocket is not available)
-                SessionTranscriptStore.shared.addLocalTranscript(finalText, confidence: 1.0)
-                    print("📝 Local transcript (fallback): \(finalText)")
-            }
-        )
-        }
-        
-        // Check and request screen recording permission
         Task {
-            let hasPermission = await checkScreenRecordingPermission()
-            if !hasPermission {
-                print("❌ Screen recording permission required for system audio capture")
+            do {
+                connectionStatus = "Connecting to Deepgram..."
+                
+                // Connect to Deepgram first
+                try await deepgramSTT.connect()
+                
+                connectionStatus = "Starting audio capture..."
+                
+                // Start system audio capture
+                try await startScreenCaptureWithAudio()
+                
+                isListening = true
+                connectionStatus = "Listening..."
+                
+                // Start session in transcript store
+        SessionTranscriptStore.shared.startSession(sessionId: sessionId)
+                
+                onStarted(true)
+                print("✅ Nova: Started listening with Deepgram STT")
+                
+            } catch {
+                connectionStatus = "Error: \(error.localizedDescription)"
                 onStarted(false)
-                return
+                print("❌ Nova: Failed to start listening: \(error)")
             }
+        }
+    }
+    
+    /// Stop listening and save transcript
+    func stopListening() async {
+        guard isListening else { return }
+        
+        connectionStatus = "Stopping..."
+        
+        // Stop audio capture
+        await stopScreenCapture()
+        
+        // Finalize Deepgram connection
+        await deepgramSTT.finalizeAndDisconnect()
+        
+        // Save transcript
+        await finishSession()
+        
+        isListening = false
+        connectionStatus = "Ready"
+        
+        print("✅ Nova: Stopped listening")
+    }
+    
+    // MARK: - Legacy Interface (for backward compatibility)
+    
+    func startListening(sessionId: String, onStarted: @escaping (Bool) -> Void) {
+        startListening(sessionId: sessionId as String?, onStarted: onStarted)
+    }
+    
+    // MARK: - Deepgram Integration
+    
+    private func setupDeepgramIntegration() {
+        // Listen to Deepgram transcript results
+        deepgramSTT.onTranscriptResult = { [weak self] result in
+            Task { @MainActor in
+                await self?.handleDeepgramResult(result)
+            }
+        }
+        
+        // Listen to connection state changes
+        deepgramSTT.onConnectionStateChange = { [weak self] state in
+            Task { @MainActor in
+                self?.updateConnectionStatus(for: state)
+            }
+        }
+        
+        // Listen to errors
+        deepgramSTT.onError = { [weak self] error in
+            Task { @MainActor in
+                self?.connectionStatus = "Error: \(error.localizedDescription)"
+                print("❌ Deepgram error: \(error)")
+            }
+        }
+        
+        // Bind live transcript
+        deepgramSTT.$liveTranscript
+            .receive(on: DispatchQueue.main)
+            .assign(to: \.liveTranscript, on: self)
+            .store(in: &cancellables)
+    }
+    
+    private func handleDeepgramResult(_ result: DeepgramResult) async {
+        // Skip empty results
+        guard !result.isEmpty else { return }
+        
+        if result.isFinal {
+            // Create transcript segment for finalized speech
+            let segment = SessionTranscriptStore.TranscriptSegment(
+                timestamp: Date(),
+                text: result.transcript,
+                confidence: Float(result.confidence),
+                source: .server
+            )
             
-            // Start professional audio capture
-            await startProfessionalAudioCapture(onStarted: onStarted)
+            finalizedSegments.append(segment)
+            
+            // Add to session transcript store
+            SessionTranscriptStore.shared.addTranscriptSegment(
+                text: result.transcript,
+                confidence: Float(result.confidence),
+                source: .server
+            )
+            
+            // ✅ NEW: Store important transcripts in vector memory
+            await storeTranscriptInMemory(result.transcript)
+            
+            print("📝 Final transcript: \(result.transcript)")
+        } else {
+            print("📝 Interim transcript: \(result.transcript)")
+        }
+    }
+    
+    // ✅ NEW: Store transcript content in vector memory system
+    private func storeTranscriptInMemory(_ transcript: String) async {
+        // Only store substantial content (not filler words or short phrases)
+        guard transcript.count > 10 else { return }
+        
+        // Determine memory type based on content analysis
+        let memoryType = analyzeTranscriptType(transcript)
+        let importance = calculateTranscriptImportance(transcript)
+        
+        // Store in vector memory if it seems important enough
+        if importance > 0.5 {
+            await VectorMemoryManager.shared.storeMemoryWithEmbedding(
+                content: transcript,
+                type: memoryType,
+                source: .conversation,
+                importance: importance
+            )
+            
+            print("💾 Stored transcript in memory: \(transcript.prefix(50))...")
+        }
+    }
+    
+    // ✅ NEW: Analyze transcript to determine memory type
+    private func analyzeTranscriptType(_ transcript: String) -> MemoryType {
+        let lowerText = transcript.lowercased()
+        
+        // Check for specific patterns
+        if lowerText.contains("i like") || lowerText.contains("i prefer") || lowerText.contains("i love") {
+            return .preference
+        } else if lowerText.contains("my name") || lowerText.contains("i am") || lowerText.contains("i'm") {
+            return .personal
+        } else if lowerText.contains("work") || lowerText.contains("job") || lowerText.contains("company") {
+            return .professional
+        } else if lowerText.contains("want to") || lowerText.contains("plan to") || lowerText.contains("goal") {
+            return .goal
+        } else if lowerText.contains("remember") || lowerText.contains("always") || lowerText.contains("never") {
+            return .instruction
+        } else if lowerText.contains("friend") || lowerText.contains("family") || lowerText.contains("relationship") {
+            return .relationship
+        } else {
+            return .knowledge
+        }
+    }
+    
+    // ✅ NEW: Calculate importance score for transcript content
+    private func calculateTranscriptImportance(_ transcript: String) -> Double {
+        let lowerText = transcript.lowercased()
+        var importance: Double = 0.3 // Base importance
+        
+        // Boost importance for personal information
+        if lowerText.contains("my name") || lowerText.contains("i am") {
+            importance += 0.4
+        }
+        
+        // Boost for preferences
+        if lowerText.contains("i like") || lowerText.contains("i prefer") || lowerText.contains("favorite") {
+            importance += 0.3
+        }
+        
+        // Boost for goals and plans
+        if lowerText.contains("want to") || lowerText.contains("plan to") || lowerText.contains("goal") {
+            importance += 0.3
+        }
+        
+        // Boost for work/professional content
+        if lowerText.contains("work") || lowerText.contains("job") || lowerText.contains("career") {
+            importance += 0.2
+        }
+        
+        // Boost for instructions
+        if lowerText.contains("remember") || lowerText.contains("always") || lowerText.contains("never") {
+            importance += 0.4
+        }
+        
+        // Penalize for very short content
+        if transcript.count < 20 {
+            importance -= 0.2
+        }
+        
+        // Penalize for filler words
+        let fillerWords = ["um", "uh", "like", "you know", "basically", "literally"]
+        let words = lowerText.components(separatedBy: .whitespacesAndNewlines)
+        let fillerCount = words.filter { word in
+            fillerWords.contains(word.trimmingCharacters(in: .punctuationCharacters))
+        }.count
+        
+        if Double(fillerCount) / Double(words.count) > 0.3 {
+            importance -= 0.3
+        }
+        
+        return max(0.0, min(1.0, importance))
+    }
+    
+    private func updateConnectionStatus(for state: DeepgramConnectionState) {
+        switch state {
+        case .disconnected:
+            connectionStatus = "Disconnected"
+        case .connecting:
+            connectionStatus = "Connecting..."
+        case .connected:
+            connectionStatus = "Connected"
+        case .error(let error):
+            connectionStatus = "Error: \(error.localizedDescription)"
+        case .finalized:
+            connectionStatus = "Finalizing..."
+        }
+    }
+    
+    // MARK: - Session Management
+    
+    private func finishSession() async {
+        guard let sessionId = sessionId,
+              let _ = sessionStartTime else { return }
+        
+        // Finalize session in transcript store
+        let transcriptURL = await SessionTranscriptStore.shared.finishSession()
+        
+        // Clear session data
+        self.sessionId = nil
+        self.sessionStartTime = nil
+        finalizedSegments.removeAll()
+        accumulatingPCM.removeAll()
+        accumulatedSamples = 0
+        
+        print("✅ Session \(sessionId) completed. Transcript saved: \(transcriptURL?.lastPathComponent ?? "unknown")")
+    }
+    
+    // MARK: - Audio Capture (Enhanced for Deepgram)
+    
+    private func startScreenCaptureWithAudio() async throws {
+        // Get available content for screen + audio capture
+        let availableContent = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        
+        guard let display = availableContent.displays.first else {
+            throw AudioCaptureError.noDisplayAvailable
+        }
+        
+        // Configure stream for screen + audio capture
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let configuration = SCStreamConfiguration()
+        configuration.width = Int(display.width)
+        configuration.height = Int(display.height)
+        configuration.capturesAudio = true  // This captures system audio!
+        configuration.sampleRate = Int(targetSampleRate)
+        configuration.channelCount = 1
+        configuration.excludesCurrentProcessAudio = true  // Don't capture Nova's own audio
+        
+        // Create and start the capture stream
+        screenCaptureSession = SCStream(filter: filter, configuration: configuration, delegate: self)
+        
+        // Add audio stream output
+        try screenCaptureSession?.addStreamOutput(self, type: .audio, sampleHandlerQueue: .main)
+        
+        // Start capture
+        try await screenCaptureSession?.startCapture()
+        
+        print("✅ System audio capture started for Deepgram STT")
+    }
+    
+    private func stopScreenCapture() async {
+        guard let session = screenCaptureSession else { return }
+        
+        do {
+            try await session.stopCapture()
+            screenCaptureSession = nil
+            print("✅ System audio capture stopped")
+        } catch {
+            print("⚠️ Error stopping screen capture: \(error)")
         }
     }
     
@@ -183,36 +461,6 @@ final class AudioCaptureManager: NSObject {
         }
     }
     
-    private func startScreenCaptureWithAudio() async throws {
-        // Get available content for screen + audio capture
-        let availableContent = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        
-        guard let display = availableContent.displays.first else {
-            throw AudioCaptureError.noDisplayAvailable
-        }
-        
-        // Configure stream for screen + audio capture
-        let filter = SCContentFilter(display: display, excludingWindows: [])
-        let configuration = SCStreamConfiguration()
-        configuration.width = Int(display.width)
-        configuration.height = Int(display.height)
-        configuration.capturesAudio = true  // This captures system audio!
-        configuration.sampleRate = Int(targetSampleRate)
-        configuration.channelCount = 1
-        
-        // Create and start the capture stream
-        screenCaptureSession = SCStream(filter: filter, configuration: configuration, delegate: self)
-        
-        // Add audio stream output
-        try screenCaptureSession?.addStreamOutput(self, type: .audio, sampleHandlerQueue: .main)
-        
-        // Start capture
-        try await screenCaptureSession?.startCapture()
-        
-        print("✅ Professional audio capture started - capturing system audio + screen")
-        print("🎧 System audio capture enabled via Screen Recording permission")
-    }
-    
     private func setupAudioProcessing() {
         // Configure audio format conversion
         let sourceFormat = AVAudioFormat(standardFormatWithSampleRate: targetSampleRate, channels: 1)!
@@ -269,19 +517,18 @@ final class AudioCaptureManager: NSObject {
         
         let samples = Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
         
-        // ✅ FIX: Convert Int16 samples to Data before appending
+        // Convert Int16 samples to Data for Deepgram
         let sampleData = Data(bytes: samples, count: samples.count * MemoryLayout<Int16>.size)
         accumulatingPCM.append(sampleData)
         accumulatedSamples += samples.count
         
-        // ✅ FIX: Only feed audio to local speech transcriber if WebSocket is not available
-        if !useWebSocket, let audioBuffer = createAudioBuffer(from: samples) {
-            SpeechTranscriber.shared.append(audioBuffer)
-        }
-        
-        // Check if we have enough samples for a chunk
-        if accumulatedSamples >= samplesPerChunk {
-            sendAudioChunk()
+        // Check if we have enough data for a chunk (50ms = 1600 bytes)
+        while accumulatingPCM.count >= chunkSizeBytes {
+            let chunk = accumulatingPCM.prefix(chunkSizeBytes)
+            accumulatingPCM.removeFirst(chunkSizeBytes)
+            
+            // Send to Deepgram STT
+            deepgramSTT.sendAudioData(Data(chunk))
         }
         
         // Voice activity detection
@@ -289,12 +536,6 @@ final class AudioCaptureManager: NSObject {
         if rms > voiceThreshold {
             lastVoiceActivity = Date()
             lastNonSilenceAt = Date()
-        }
-        
-        // Auto-stop if too much silence
-        let silenceDuration = Date().timeIntervalSince(lastVoiceActivity)
-        if silenceDuration > maxChunkDuration && accumulatedSamples > 0 {
-            sendAudioChunk()
         }
     }
     
@@ -428,33 +669,10 @@ final class AudioCaptureManager: NSObject {
         }
     }
     
-    private func finishSession() async {
-        // Save final transcript
-        let _ = await SessionTranscriptStore.shared.finishSession()
-        
-        // Clean up any remaining resources
-        print("✅ Session finished and transcript saved")
-        
-        // Additional cleanup: try to force stop any lingering processes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            print("🔒 DEBUG: Additional cleanup - checking for lingering sessions...")
-            
-            // Try to force revoke again
-            let _ = CGRequestScreenCaptureAccess()
-            
-            // Check if we need to manually clear the permission
-            if self.checkCurrentScreenRecordingStatus() {
-                print("⚠️ Permission still active after 2 seconds, attempting manual cleanup...")
-                // Try to trigger system permission dialog to force user to revoke
-                let _ = CGRequestScreenCaptureAccess()
-            }
-        }
-    }
-    
     // MARK: - Audio Processing (from screen capture)
     
     private func processAudioFromSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-        guard isRunning else { return }
+        guard isListening else { return }
         
         // Extract audio data from sample buffer
         guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
@@ -470,19 +688,18 @@ final class AudioCaptureManager: NSObject {
             Array(UnsafeBufferPointer(start: pointer, count: length / 2))
         }
         
-        // ✅ FIX: Convert Int16 samples to Data before appending
+        // Convert Int16 samples to Data for Deepgram
         let sampleData = Data(bytes: samples, count: samples.count * MemoryLayout<Int16>.size)
         accumulatingPCM.append(sampleData)
         accumulatedSamples += samples.count
         
-        // ✅ FIX: Only feed audio to local speech transcriber if WebSocket is not available
-        if !useWebSocket, let audioBuffer = createAudioBuffer(from: samples) {
-            SpeechTranscriber.shared.append(audioBuffer)
-        }
-        
-        // Check if we have enough samples for a chunk
-        if accumulatedSamples >= samplesPerChunk {
-            sendAudioChunk()
+        // Check if we have enough data for a chunk (50ms = 1600 bytes)
+        while accumulatingPCM.count >= chunkSizeBytes {
+            let chunk = accumulatingPCM.prefix(chunkSizeBytes)
+            accumulatingPCM.removeFirst(chunkSizeBytes)
+            
+            // Send to Deepgram STT
+            deepgramSTT.sendAudioData(Data(chunk))
         }
         
         // Voice activity detection
@@ -490,12 +707,6 @@ final class AudioCaptureManager: NSObject {
         if rms > voiceThreshold {
             lastVoiceActivity = Date()
             lastNonSilenceAt = Date()
-        }
-        
-        // Auto-stop if too much silence
-        let silenceDuration = Date().timeIntervalSince(lastVoiceActivity)
-        if silenceDuration > maxChunkDuration && accumulatedSamples > 0 {
-            sendAudioChunk()
         }
     }
     

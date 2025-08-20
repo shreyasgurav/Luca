@@ -388,42 +388,42 @@ struct CompactView: View {
         var body: some View {
         VStack(alignment: .leading, spacing: 10) {
         HStack(spacing: 8) {
-			// Listen Button FIRST
-			Button(action: toggleListening) {
-				HStack(spacing: 6) {
-					if isListening {
-						Image(systemName: "record.circle.fill")
-							.font(.system(size: 12, weight: .medium))
-							.foregroundColor(.white)
-						Text(startTime.map { listeningDuration(from: $0) } ?? "00:00")
-							.font(.system(size: 12, weight: .semibold))
-							.monospacedDigit()
-							.minimumScaleFactor(0.9)
-							.lineLimit(1)
-					} else {
-						Image(systemName: "waveform")
-							.font(.system(size: 12, weight: .medium))
-						Text("Listen")
-							.font(.system(size: 12, weight: .semibold))
-							.minimumScaleFactor(0.9)
-							.lineLimit(1)
-					}
+					// Listen Button FIRST - Now with Deepgram STT
+		Button(action: toggleDeepgramListening) {
+			HStack(spacing: 6) {
+				                if isListening {
+					Image(systemName: "stop.circle.fill")
+						.font(.system(size: 12, weight: .medium))
+						.foregroundColor(.white)
+					Text(startTime.map { listeningDuration(from: $0) } ?? "00:00")
+						.font(.system(size: 12, weight: .semibold))
+						.monospacedDigit()
+						.minimumScaleFactor(0.9)
+						.lineLimit(1)
+				} else {
+					Image(systemName: "waveform")
+						.font(.system(size: 12, weight: .medium))
+					Text("Listen")
+						.font(.system(size: 12, weight: .semibold))
+						.minimumScaleFactor(0.9)
+						.lineLimit(1)
 				}
-				.frame(minWidth: 100)
-				.foregroundColor(.white)
-				.padding(.horizontal, 16)
-				.padding(.vertical, 8)
-				.background(
-					LinearGradient(
-						colors: isListening ? [.red, .pink] : [.purple, .indigo],
-						startPoint: .topLeading,
-						endPoint: .bottomTrailing
-					)
-				)
-				.clipShape(Capsule())
-				.shadow(color: (isListening ? Color.red : Color.purple).opacity(0.3), radius: 4, x: 0, y: 2)
 			}
-			.buttonStyle(.plain)
+			.frame(minWidth: 100)
+			.foregroundColor(.white)
+			.padding(.horizontal, 16)
+			.padding(.vertical, 8)
+			.background(
+				LinearGradient(
+					colors: isListening ? [.red, .pink] : [.purple, .indigo],
+					startPoint: .topLeading,
+					endPoint: .bottomTrailing
+				)
+			)
+			.clipShape(Capsule())
+			.shadow(color: (isListening ? Color.red : Color.purple).opacity(0.3), radius: 4, x: 0, y: 2)
+		}
+		.buttonStyle(.plain)
 
 			// Ask Question SECOND → shows one-shot inline input below
 			Button(action: {
@@ -508,6 +508,42 @@ struct CompactView: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 12)
+        
+        // MARK: - Live Transcript Display (Deepgram STT)
+        if isListening && !localTranscript.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: "waveform.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.system(size: 12))
+                    Text("Live Transcript")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("Ready")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                }
+                
+                ScrollView {
+                    Text(localTranscript)
+                        .font(.system(size: 12))
+                        .foregroundColor(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .frame(maxHeight: 80)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
         
 		if !inlineConversation.isEmpty || inlineLoading || showInlineChat {
 			VStack(spacing: 8) {
@@ -624,13 +660,56 @@ struct CompactView: View {
         return String(format: "%02d:%02d", m, r)
     }
 
+    // MARK: - Deepgram Audio Controls
+    
+    private func toggleDeepgramListening() {
+        if isListening {
+            // Stop listening
+            Task {
+                await AudioCaptureManager.shared.stopListening()
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isListening = false
+                        startTime = nil
+                        listeningSessionId = ""
+                        timer?.invalidate()
+                        timer = nil
+                    }
+                }
+            }
+        } else {
+            // Start listening with Deepgram STT
+            let sessionId = UUID().uuidString
+            listeningSessionId = sessionId
+            startTime = Date()
+            
+            AudioCaptureManager.shared.startListening(sessionId: sessionId) { success in
+                DispatchQueue.main.async {
+                    isListening = success
+                    if success {
+                        // Start timer to update the duration display
+                        timer?.invalidate()
+                        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in 
+                            now = Date() 
+                        }
+                    } else {
+                        startTime = nil
+                        listeningSessionId = ""
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Legacy Audio Controls (for backward compatibility)
+    
     private func toggleListening() {
         if isListening {
             guard !listeningSessionId.isEmpty else { isListening = false; return }
             ClientAPI.shared.listenStop(sessionId: listeningSessionId) { result in
                 DispatchQueue.main.async {
 						if case .success(let obj) = result {
-							let sid = listeningSessionId.isEmpty ? (obj["sessionId"] as? String ?? UUID().uuidString) : listeningSessionId
+							                                                        let _ = listeningSessionId.isEmpty ? (obj["sessionId"] as? String ?? UUID().uuidString) : listeningSessionId
 							let serverTranscript = (obj["transcript"] as? String) ?? ""
 							// Prefer local on-device transcript; if server only returned mock and local is empty, save a helpful placeholder file
 							let serverIsMock = serverTranscript.contains("[mock transcript") || serverTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -657,7 +736,7 @@ struct CompactView: View {
 							}
 						} else {
 							// Network/stop error: still save local if present, otherwise save placeholder guidance
-							let sid = listeningSessionId.isEmpty ? UUID().uuidString : listeningSessionId
+							                                                        let _ = listeningSessionId.isEmpty ? UUID().uuidString : listeningSessionId
 							let localText = localTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
 							if !localText.isEmpty {
 								SessionTranscriptStore.shared.addFinalTranscript(localText)

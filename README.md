@@ -4,9 +4,9 @@ An on-device macOS assistant that sees your screen, understands context, and hel
 
 Nova stands for "Neural Omni-View Assistant".
 
-## 🎯 Professional Audio Capture
+## 🎯 Professional Audio Capture & Transcription
 
-Nova uses **Screen Recording permission** to capture system audio (YouTube, Zoom, music, etc.) automatically. This is the same approach used by professional apps like Clueify.
+Nova uses **Screen Recording permission** to capture system audio (YouTube, Zoom, music, etc.) automatically and **Deepgram STT** for high-quality real-time transcription.
 
 ### ✅ Zero Configuration Required
 - **No external drivers** like BlackHole
@@ -25,6 +25,12 @@ Nova uses **Screen Recording permission** to capture system audio (YouTube, Zoom
 - **Screen content**: For context and analysis
 - **Microphone**: If you speak while recording
 
+### 🎤 High-Quality Transcription
+- **Deepgram STT**: Professional-grade speech-to-text
+- **Real-time processing**: Immediate transcription feedback
+- **Smart deduplication**: Removes repetitive content automatically
+- **Clean transcripts**: Organized by source (on-device vs server)
+
 ---
 
 ## Quick Start
@@ -34,11 +40,19 @@ Nova uses **Screen Recording permission** to capture system audio (YouTube, Zoom
 cd Server
 npm install
 cp config.production.js config.js
-# Edit config.js with your API keys
+# Edit config.js with your API keys (OpenAI + Deepgram)
 npm start
 ```
 
-2) macOS app
+2) Deepgram STT setup (for audio transcription)
+```bash
+cd Server
+./setup_deepgram.sh
+# Follow the instructions to get your Deepgram API key
+# Edit config.js with your Deepgram API key
+```
+
+3) macOS app
 - Open the Xcode project in this repo
 - Build and run the macOS target
 - Ensure the server is running on port 3000
@@ -51,13 +65,16 @@ npm start
 - **Real integrations**: nearby search via Google Places
 - **Desktop-native UX**: floating overlay, compact/expanded chat, selection capture
 - **Professional audio**: system audio capture via Screen Recording (no setup required)
+- **High-quality transcription**: Deepgram STT for accurate speech-to-text
 
-### Audio Capture
+### Audio Capture & Transcription
 - **Automatic system audio detection** via Screen Recording permission
-- **Real-time transcription** using Apple Speech and OpenAI Whisper
+- **Real-time transcription** using Deepgram STT (primary) and Apple Speech (fallback)
 - **Voice Activity Detection** for intelligent audio chunking
 - **Audio quality validation** and preprocessing
 - **Session-based storage** with local file management
+- **Smart deduplication** removes repetitive content automatically
+- **Clean transcript format** organized by transcription source
 
 ### Memory System
 - **Vector embeddings** for semantic search
@@ -85,7 +102,7 @@ npm start
   - Chat/images: forwards prompts and screenshots to OpenAI
   - Embeddings: generates normalized embeddings (with a mock fallback for offline/dev)
   - Memory extraction: LLM-assisted JSON extraction with robust fallback heuristics
-  
+  - **Audio transcription: Deepgram STT for high-quality speech-to-text**
   - Places search: Google Places Text Search with location bias
 
 ---
@@ -96,59 +113,56 @@ npm start
 - POST `/api/chat` — chat with optional `promptContext` and `sessionId`
 - POST `/api/memory/extract` — extract structured memories from content
 - POST `/api/embedding` — generate numeric embedding for text
-
+- **WebSocket `/`** — real-time audio streaming and transcription
 - GET  `/api/places/search` — text search (query, lat, lng, radius, open_now)
 
 ---
 
 ## Configuration
 
-OpenAI and integrations are configured in `Server/config.js` (copied from `config.production.js`). Set:
-- `OPENAI_API_KEY`, `OPENAI_MODEL`
+OpenAI and Deepgram integrations are configured in `Server/config.js` (copied from `config.production.js`). Set:
+- `OPENAI_API_KEY`, `OPENAI_MODEL` - For chat and image analysis
+- **`DEEPGRAM_API_KEY`** - For high-quality audio transcription
 - Optional storage (S3/R2)
 
 - Google Places API key
 
-Tip: Prefer environment variables or a local, untracked config. Don’t commit real keys.
+**Tip**: Prefer environment variables or a local, untracked config. Don't commit real keys.
+
+## Audio Transcription Quality
+
+### Deepgram STT (Primary)
+- **Model**: Nova-2 (optimized for real-time transcription)
+- **Features**: Automatic punctuation, smart formatting, noise reduction
+- **Latency**: Real-time processing with minimal delay
+- **Accuracy**: Professional-grade transcription quality
+
+### Apple Speech (Fallback)
+- **Use case**: When Deepgram is unavailable or for testing
+- **Features**: On-device processing, privacy-focused
+- **Latency**: Slightly higher due to on-device processing
+
+### Transcript Organization
+Transcripts are automatically organized by source:
+- **ON-DEVICE TRANSCRIPTION**: Apple Speech results
+- **SERVER TRANSCRIPTION (Deepgram STT)**: Deepgram STT results  
+- **SESSION NOTES**: System-generated summaries and metadata
 
 ---
 
-## Security & Privacy
+## Troubleshooting
 
-- Keep API keys out of version control; rotate any exposed keys immediately
-- Restrict CORS in production and add rate-limiting/auth to server routes
-- Provide user controls for memory retention and the ability to purge data
-- Avoid capturing sensitive windows; Nova’s own window is excluded from capture by design
+### Audio Capture Issues
+1. **No system audio detected**: Ensure Screen Recording permission is granted
+2. **Poor transcription quality**: Check Deepgram API key configuration
+3. **Repetitive content**: Deduplication automatically removes common phrases
 
----
+### Server Issues
+1. **Transcription not working**: Run `./setup_deepgram.sh` to configure API key
+2. **Port conflicts**: Change `PORT` in config.js if 3000 is busy
+3. **API rate limits**: Check your Deepgram usage limits
 
-## Development
-
-### Prereqs
-- macOS with Xcode (for the app)
-- Node 18+ (for the server)
-
-### Scripts
-```bash
-# Server
-cd Server && npm start
-
-# Optional: production runner scripts may be included in the repo
-```
-
----
-
-## Roadmap
-- Streaming UI for chat responses
-- Vector DB backend for scalable similarity search
-- Evaluation harness for retrieval and prompt changes
-- Built-in rate limiting and auth middleware
-
----
-
-## License
-MIT
-
----
-
-Made with care for a fast, focused macOS AI experience.
+### Transcript Quality
+- **Empty transcripts**: Usually indicates no speech detected or API key issues
+- **Repetitive content**: Automatically filtered out by smart deduplication
+- **Format issues**: Transcripts are automatically organized and cleaned

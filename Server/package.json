@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "start:prod": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test:deepgram": "node test_deepgram.js",
+    "setup:deepgram": "./setup_deepgram.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.637.0",

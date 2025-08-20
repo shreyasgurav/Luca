@@ -9,6 +9,9 @@ module.exports = {
   OPENAI_BASE: 'https://api.openai.com/v1',
   OPENAI_MODEL: 'gpt-4o-mini',
   
+  // Deepgram STT Configuration - REQUIRED for audio transcription
+  DEEPGRAM_API_KEY: 'your-actual-deepgram-api-key-here', // Replace with your actual Deepgram API key
+  
   // Server Configuration - OPTIONAL
   PORT: 3000,
   
@@ -30,8 +33,9 @@ module.exports = {
 QUICK SETUP:
 1. Copy this file to config.js
 2. Replace 'sk-your-actual-openai-api-key-here' with your real OpenAI API key
-3. Run ./start.sh to start the server
-4. Build and run your iOS app
+3. Replace 'your-actual-deepgram-api-key-here' with your real Deepgram API key
+4. Run ./start.sh to start the server
+5. Build and run your iOS app
 
 GETTING AN OPENAI API KEY:
 1. Go to https://platform.openai.com/api-keys
@@ -40,8 +44,15 @@ GETTING AN OPENAI API KEY:
 4. Copy the key (starts with 'sk-')
 5. Paste it in config.js
 
+GETTING A DEEPGRAM API KEY:
+1. Go to https://console.deepgram.com/
+2. Sign in or create an account
+3. Go to API Keys section
+4. Create a new API key
+5. Copy the key and paste it in config.js
+
 SECURITY NOTES:
-- Never commit your actual API key to version control
+- Never commit your actual API keys to version control
 - Add config.js to .gitignore
-- Keep your API key private and secure
+- Keep your API keys private and secure
 */

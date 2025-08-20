@@ -86,7 +86,8 @@ async function handleWebSocketStart(ws, data) {
     startTime: Date.now(),
     audioChunks: [],
     transcript: '',
-    isActive: true
+    isActive: true,
+    recentTranscripts: [] // Add recentTranscripts to session
   });
   
   audioBuffers.set(sessionId, []);
@@ -127,6 +128,7 @@ async function handleWebSocketAudioChunk(ws, data) {
       const cleanedTranscript = deduplicateServerTranscript(transcript, session);
       
       if (cleanedTranscript) {
+        // Only add to session transcript if it's actual speech content
         session.transcript += (session.transcript ? '\n' : '') + cleanedTranscript;
         
         // Send immediate transcription back
@@ -142,6 +144,9 @@ async function handleWebSocketAudioChunk(ws, data) {
       } else {
         console.log(`🔍 Filtered duplicate transcript: ${transcript}`);
       }
+    } else {
+      // Log when no speech is detected (but don't add to transcript)
+      console.log(`🔇 No speech detected in audio chunk ${chunkIndex}`);
     }
     
     // Acknowledge chunk received
@@ -165,39 +170,47 @@ async function handleWebSocketStop(ws, data) {
   const { sessionId } = data;
   const session = sessions.get(sessionId);
   
-  if (!session) {
-    ws.send(JSON.stringify({ error: 'Session not found' }));
+  if (!session || !session.isActive) {
+    ws.send(JSON.stringify({ error: 'Invalid or inactive session' }));
     return;
   }
   
   try {
-    // Finalize session
+    // Mark session as inactive
     session.isActive = false;
-    const duration = Date.now() - session.startTime;
     
-    // Send final transcript
+    // Calculate session duration
+    const duration = Date.now() - session.startTime;
+    const totalChunks = session.audioChunks.length;
+    
+    // Get only the actual speech transcript (filter out any system messages)
+    const cleanTranscript = session.transcript.trim();
+    
+    // Send final session data
     ws.send(JSON.stringify({
       type: 'session_completed',
       sessionId,
-      finalTranscript: session.transcript,
+      finalTranscript: cleanTranscript,
       duration,
-      totalChunks: session.audioChunks.length,
+      totalChunks,
       stats: {
-        chunks: session.audioChunks.length,
+        chunks: totalChunks,
         duration: Math.round(duration / 1000),
-        transcriptLength: session.transcript.length
+        transcriptLength: cleanTranscript.length
       }
     }));
     
-    // Cleanup
-    sessions.delete(sessionId);
-    audioBuffers.delete(sessionId);
+    console.log(`✅ Session ${sessionId} completed: ${totalChunks} chunks, ${cleanTranscript.length} chars`);
     
-    console.log(`✅ WebSocket session completed: ${sessionId}`);
+    // Clean up session data
+    sessions.delete(sessionId);
     
   } catch (error) {
-    console.error('Session stop error:', error);
-    ws.send(JSON.stringify({ error: 'Failed to stop session' }));
+    console.error('Session completion error:', error);
+    ws.send(JSON.stringify({ 
+      error: 'Failed to complete session',
+      details: error.message 
+    }));
   }
 }
 
@@ -271,6 +284,8 @@ async function handleStop(req, res) {
 
     // Transcribe each chunk sequentially and append
     const segments = [];
+    let cleanTranscript = '';
+    
     // Extra: if a file is too small to be real audio (<1KB), skip it
     for (let i = 0; i < files.length; i++) {
       const filePath = path.join(dir, files[i]);
@@ -283,21 +298,33 @@ async function handleStop(req, res) {
       } catch {}
       try {
         const text = await transcribeWavFile(filePath);
-        segments.push({ idx: i, file: files[i], text });
+        if (text && text.trim()) {
+          segments.push({ idx: i, file: files[i], text });
+          cleanTranscript += (cleanTranscript ? '\n' : '') + text.trim();
+        } else {
+          segments.push({ idx: i, file: files[i], text: '', skipped: true, reason: 'no speech' });
+        }
       } catch (e) {
         segments.push({ idx: i, file: files[i], text: '', error: e.message });
       }
     }
 
-    let transcript = segments.map(s => (s.text || '').trim()).filter(Boolean).join('\n\n');
-    if (!transcript.trim()) {
-      // Ensure non-empty transcript so client file isn't blank during testing
-      transcript = `[mock transcript] captured ${files.length} chunks, ${Math.round(totalBytes/1024)} KB total`;
+    // Only return transcript if we have actual speech content
+    if (!cleanTranscript.trim()) {
+      return sendJSON(res, 200, {
+        success: true,
+        sessionId,
+        transcript: '',
+        segments,
+        stats: { chunks: files.length, bytes: totalBytes },
+        message: 'No speech content detected in audio'
+      });
     }
+    
     return sendJSON(res, 200, {
       success: true,
       sessionId,
-      transcript,
+      transcript: cleanTranscript.trim(),
       segments,
       stats: { chunks: files.length, bytes: totalBytes },
       saved_dir: dir
@@ -317,15 +344,63 @@ async function handleQuery(req, res) {
   return sendJSON(res, 200, { answer, citations: [] });
 }
 
-// ✅ NEW: Server-side deduplication for repetitive content
+// ✅ FIX: Add server-side deduplication for repetitive content
 function deduplicateServerTranscript(transcript, session) {
-  const trimmed = transcript.trim();
-  const lower = trimmed.toLowerCase();
+  if (!transcript || !transcript.trim()) {
+    return null;
+  }
   
-  // Filter out common repetitive phrases
+  const cleanedTranscript = transcript.trim();
+  
+  // Check against recent transcripts in session
+  if (session.recentTranscripts && session.recentTranscripts.length > 0) {
+    for (const recent of session.recentTranscripts) {
+      const similarity = calculateSimilarity(cleanedTranscript, recent);
+      if (similarity > 0.8) { // 80% similar
+        console.log(`🔍 Filtered duplicate transcript (similarity: ${similarity.toFixed(2)}): ${cleanedTranscript}`);
+        return null;
+      }
+    }
+  }
+  
+  // Check for repetitive content patterns
+  if (isRepetitiveContent(cleanedTranscript)) {
+    console.log(`🔍 Filtered repetitive content: ${cleanedTranscript}`);
+    return null;
+  }
+  
+  // Store recent transcript for future comparison
+  if (!session.recentTranscripts) {
+    session.recentTranscripts = [];
+  }
+  session.recentTranscripts.push(cleanedTranscript);
+  
+  // Keep only last 10 for memory efficiency
+  if (session.recentTranscripts.length > 10) {
+    session.recentTranscripts.shift();
+  }
+  
+  return cleanedTranscript;
+}
+
+// ✅ NEW: Detect repetitive content patterns
+function isRepetitiveContent(text) {
+  const lowerText = text.toLowerCase();
+  
+  // Common repetitive phrases
   const repetitivePhrases = [
     'thank you for watching',
-    'thank you for watching.',
+    'thanks for watching',
+    'please like and subscribe',
+    'don\'t forget to subscribe',
+    'hit the like button',
+    'comment below',
+    'see you next time',
+    'until next time',
+    'goodbye',
+    'bye',
+    'end of video',
+    'end of stream',
     'boom',
     'bzzz',
     'yeah yeah yeah',
@@ -333,30 +408,24 @@ function deduplicateServerTranscript(transcript, session) {
     'right right right'
   ];
   
-  // Check if this is a known repetitive phrase
-  if (repetitivePhrases.includes(lower)) {
-    // Check recent transcript chunks (last 5 lines)
-    const recentLines = session.transcript.split('\n').slice(-5);
-    const recentLowerTexts = recentLines.map(line => line.toLowerCase());
-    
-    if (recentLowerTexts.includes(lower)) {
-      return null; // Skip this duplicate
+  // Check if text matches any repetitive phrase
+  for (const phrase of repetitivePhrases) {
+    if (lowerText.includes(phrase)) {
+      return true;
     }
   }
   
-  // Check for consecutive identical text
-  const lastLines = session.transcript.split('\n');
-  const lastLine = lastLines[lastLines.length - 1];
-  if (lastLine && lastLine.toLowerCase() === lower) {
-    return null; // Skip consecutive duplicate
+  // Check for repeated words (e.g., "you you you")
+  const words = lowerText.split(/\s+/).filter(word => word.length > 0);
+  if (words.length >= 3) {
+    for (let i = 0; i < words.length - 2; i++) {
+      if (words[i] === words[i + 1] && words[i + 1] === words[i + 2]) {
+        return true;
+      }
+    }
   }
   
-  // Check for very similar text (simple character similarity)
-  if (lastLine && calculateSimilarity(lastLine.toLowerCase(), lower) > 0.9) {
-    return null; // Skip very similar content
-  }
-  
-  return trimmed;
+  return false;
 }
 
 // ✅ NEW: Calculate simple character-based similarity
@@ -369,13 +438,12 @@ function calculateSimilarity(str1, str2) {
   return union.size > 0 ? intersection.size / union.size : 0;
 }
 
-// New: Transcribe audio buffer directly (no file I/O)
+// New: Transcribe audio buffer directly using Deepgram STT
 async function transcribeAudioBuffer(audioBuffer) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    // Mock transcription for testing
-    const seconds = Math.round(audioBuffer.length / 32000);
-    return `[mock transcript ~${seconds}s]`;
+  const deepgramApiKey = process.env.DEEPGRAM_API_KEY;
+  if (!deepgramApiKey) {
+    console.warn('No Deepgram API key found, skipping transcription');
+    return '';
   }
 
   try {
@@ -383,85 +451,76 @@ async function transcribeAudioBuffer(audioBuffer) {
     const fetch = require('node-fetch');
 
     const form = new FormData();
-    form.append('model', 'whisper-1');
-    form.append('response_format', 'json');
-    form.append('file', audioBuffer, {
+    form.append('audio', audioBuffer, {
       filename: 'chunk.wav',
       contentType: 'audio/wav'
     });
 
-    const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    // Deepgram STT API with optimized settings for real-time transcription
+    const resp = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&language=en&punctuate=true&diarize=false&smart_format=true&filler_words=false&utterances=false&paragraphs=false&channels=1&sample_rate=16000', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}` },
-      body: form
+      headers: { 
+        'Authorization': `Token ${deepgramApiKey}`,
+        'Content-Type': 'audio/wav'
+      },
+      body: audioBuffer
     });
 
     if (!resp.ok) {
-      console.warn('Whisper error:', resp.status);
-      const seconds = Math.round(audioBuffer.length / 32000);
-      return `[transcription error ~${seconds}s]`;
+      console.warn('Deepgram STT error:', resp.status);
+      return '';
     }
 
     const data = await resp.json();
-    const text = (data && typeof data.text === 'string') ? data.text.trim() : '';
+    const text = (data?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '').trim();
     
     if (!text) {
-      const seconds = Math.round(audioBuffer.length / 32000);
-      return `[no speech detected ~${seconds}s]`;
+      return '';
     }
     
     return text;
   } catch (e) {
-    console.warn('Whisper exception:', e.message);
-    const seconds = Math.round(audioBuffer.length / 32000);
-    return `[transcription failed ~${seconds}s]`;
+    console.warn('Deepgram STT exception:', e.message);
+    return '';
   }
 }
 
 async function transcribeWavFile(filePath) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    const seconds = Math.round((fs.statSync(filePath).size || 0) / 32000);
-    return `[mock transcript ~${seconds}s from ${path.basename(filePath)}]`;
+  const deepgramApiKey = process.env.DEEPGRAM_API_KEY;
+  if (!deepgramApiKey) {
+    console.warn('No Deepgram API key found, skipping transcription');
+    return '';
   }
 
-  // Use undici FormData if available (Node >=18)
-  const FormData = require('form-data');
-  const fetch = require('node-fetch');
-
-  const form = new FormData();
-  form.append('model', 'whisper-1');
-  form.append('response_format', 'json');
-  form.append('file', fs.createReadStream(filePath), {
-    filename: path.basename(filePath),
-    contentType: 'audio/wav'
-  });
-
   try {
-    const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    const fs = require('fs');
+    const audioBuffer = fs.readFileSync(filePath);
+    
+    const resp = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&language=en&punctuate=true&diarize=false&smart_format=true&filler_words=false&utterances=false&paragraphs=false&channels=1&sample_rate=16000', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}` },
-      body: form
+      headers: { 
+        'Authorization': `Token ${deepgramApiKey}`,
+        'Content-Type': 'audio/wav'
+      },
+      body: audioBuffer
     });
+
     if (!resp.ok) {
-      const t = await resp.text();
-      console.warn('Whisper error:', resp.status, t);
-      const seconds = Math.round((fs.statSync(filePath).size || 0) / 32000);
-      return `[mock transcript ~${seconds}s from ${path.basename(filePath)}]`;
+      console.warn('Deepgram STT error:', resp.status);
+      return '';
     }
+
     const data = await resp.json();
-    // Some Whisper responses may return an empty string for low/quiet audio.
-    // Fallback to a mock duration-based transcript instead of empty.
-    const text = (data && typeof data.text === 'string') ? data.text.trim() : '';
+    const text = (data?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '').trim();
+    
     if (!text) {
-      const seconds = Math.round((fs.statSync(filePath).size || 0) / 32000);
-      return `[mock transcript ~${seconds}s from ${path.basename(filePath)}]`;
+      return '';
     }
+    
     return text;
   } catch (e) {
-    console.warn('Whisper exception:', e.message);
-    const seconds = Math.round((fs.statSync(filePath).size || 0) / 32000);
-    return `[mock transcript ~${seconds}s from ${path.basename(filePath)}]`;
+    console.warn('Deepgram STT exception:', e.message);
+    return '';
   }
 }
 
