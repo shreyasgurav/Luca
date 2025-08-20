@@ -60,21 +60,20 @@ final class AudioCaptureManager: NSObject {
             setupWebSocket()
         }
         
-        // ✅ FIX: Start local speech transcriber for real-time transcription
+        // ✅ FIX: Only use local speech transcriber as fallback if WebSocket fails
+        if !useWebSocket {
         SpeechTranscriber.shared.start(
             onPartial: { partialText in
                 // Optional: Show partial text in UI
                 print("🎙️ Partial: \(partialText)")
             },
             onFinal: { finalText in
-                // Store final local transcript
+                    // Store final local transcript (only when WebSocket is not available)
                 SessionTranscriptStore.shared.addLocalTranscript(finalText, confidence: 1.0)
-                print("📝 Local transcript: \(finalText)")
-                
-                // Also add to server transcript store
-                SessionTranscriptStore.shared.addServerTranscript(finalText)
+                    print("📝 Local transcript (fallback): \(finalText)")
             }
         )
+        }
         
         // Check and request screen recording permission
         Task {
@@ -258,7 +257,7 @@ final class AudioCaptureManager: NSObject {
         
         if let error = error {
             print("❌ Audio conversion error: \(error)")
-            return
+            return 
         }
         
         // Process converted audio
@@ -275,8 +274,8 @@ final class AudioCaptureManager: NSObject {
         accumulatingPCM.append(sampleData)
         accumulatedSamples += samples.count
         
-        // ✅ FIX: Feed audio to local speech transcriber for real-time recognition
-        if let audioBuffer = createAudioBuffer(from: samples) {
+        // ✅ FIX: Only feed audio to local speech transcriber if WebSocket is not available
+        if !useWebSocket, let audioBuffer = createAudioBuffer(from: samples) {
             SpeechTranscriber.shared.append(audioBuffer)
         }
         
@@ -356,33 +355,33 @@ final class AudioCaptureManager: NSObject {
             // NEW: The onSessionFinished callback will handle transcript saving
             print("🔌 WebSocket session stopping, waiting for completion...")
         } else {
-            // ✅ FIX: Call ListenAPI.stop to get server transcript before finishing session
-            if let sid = sessionId {
-                print("🔄 Requesting server transcript for session: \(sid)")
-                
-                // Add session summary transcript segment
-                let sessionDuration = Date().timeIntervalSince(lastNonSilenceAt)
-                let summaryText = "[Session Summary] Duration: \(String(format: "%.1f", sessionDuration))s - Audio capture completed"
-                SessionTranscriptStore.shared.addTranscriptSegment(
-                    text: summaryText,
-                    confidence: 1.0,
-                    source: .final
-                )
-                
-                // Call server to stop listening and get transcript
-                ClientAPI.shared.listenStop(sessionId: sid) { [weak self] result in
-                    switch result {
-                    case .success(let response):
-                        print("✅ Server transcript received")
-                        print("🔍 DEBUG: Server response: \(response)")
-                        // Server transcript is automatically added by ClientAPI.listenStop
-                        
-                    case .failure(let error):
-                        print("❌ Failed to get server transcript: \(error)")
-                    }
+        // ✅ FIX: Call ListenAPI.stop to get server transcript before finishing session
+        if let sid = sessionId {
+            print("🔄 Requesting server transcript for session: \(sid)")
+            
+            // Add session summary transcript segment
+            let sessionDuration = Date().timeIntervalSince(lastNonSilenceAt)
+            let summaryText = "[Session Summary] Duration: \(String(format: "%.1f", sessionDuration))s - Audio capture completed"
+            SessionTranscriptStore.shared.addTranscriptSegment(
+                text: summaryText,
+                confidence: 1.0,
+                source: .final
+            )
+            
+            // Call server to stop listening and get transcript
+            ClientAPI.shared.listenStop(sessionId: sid) { [weak self] result in
+                switch result {
+                case .success(let response):
+                    print("✅ Server transcript received")
+                    print("🔍 DEBUG: Server response: \(response)")
+                    // Server transcript is automatically added by ClientAPI.listenStop
                     
-                    // Always finish the session and save transcript file
-                    Task { @MainActor in
+                case .failure(let error):
+                    print("❌ Failed to get server transcript: \(error)")
+                }
+                
+                // Always finish the session and save transcript file
+                Task { @MainActor in
                         await self?.finishSession()
                     }
                 }
@@ -409,7 +408,7 @@ final class AudioCaptureManager: NSObject {
         // Additional force cleanup for app termination
         Task {
             // Force stop screen capture if still running
-            if let session = screenCaptureSession {
+        if let session = screenCaptureSession {
                 try? await session.stopCapture()
                 screenCaptureSession = nil
             }
@@ -476,8 +475,8 @@ final class AudioCaptureManager: NSObject {
         accumulatingPCM.append(sampleData)
         accumulatedSamples += samples.count
         
-        // ✅ FIX: Feed audio to local speech transcriber for real-time recognition
-        if let audioBuffer = createAudioBuffer(from: samples) {
+        // ✅ FIX: Only feed audio to local speech transcriber if WebSocket is not available
+        if !useWebSocket, let audioBuffer = createAudioBuffer(from: samples) {
             SpeechTranscriber.shared.append(audioBuffer)
         }
         
@@ -517,12 +516,12 @@ final class AudioCaptureManager: NSObject {
         if useWebSocket {
             ListenAPI.shared.sendAudioChunk(audioData: wav)
         } else {
-            ClientAPI.shared.listenSendChunk(sessionId: sid, audioData: wav, startSec: nil, endSec: nil) { ok in
-                if ok {
-                    print("✅ Audio chunk sent successfully")
+        ClientAPI.shared.listenSendChunk(sessionId: sid, audioData: wav, startSec: nil, endSec: nil) { ok in
+            if ok {
+                print("✅ Audio chunk sent successfully")
                     // Don't add server confirmation to transcript - it's not actual speech content
-                } else {
-                    print("❌ Failed to send audio chunk")
+            } else {
+                print("❌ Failed to send audio chunk")
                     // Only log errors, don't add to transcript
                 }
             }

@@ -123,16 +123,25 @@ async function handleWebSocketAudioChunk(ws, data) {
     const transcript = await transcribeAudioBuffer(audioBuffer);
     
     if (transcript && transcript.trim()) {
-      session.transcript += (session.transcript ? '\n' : '') + transcript;
+      // ✅ FIX: Add server-side deduplication for repetitive content
+      const cleanedTranscript = deduplicateServerTranscript(transcript, session);
       
-      // Send immediate transcription back
-      ws.send(JSON.stringify({
-        type: 'transcription_update',
-        sessionId,
-        chunkIndex,
-        text: transcript,
-        fullTranscript: session.transcript
-      }));
+      if (cleanedTranscript) {
+        session.transcript += (session.transcript ? '\n' : '') + cleanedTranscript;
+        
+        // Send immediate transcription back
+        ws.send(JSON.stringify({
+          type: 'transcription_update',
+          sessionId,
+          chunkIndex,
+          text: cleanedTranscript,
+          fullTranscript: session.transcript
+        }));
+        
+        console.log(`📝 Accepted transcript: ${cleanedTranscript}`);
+      } else {
+        console.log(`🔍 Filtered duplicate transcript: ${transcript}`);
+      }
     }
     
     // Acknowledge chunk received
@@ -306,6 +315,58 @@ async function handleQuery(req, res) {
   try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch {}
   const answer = `Session ${body.sessionId || ''}: (placeholder) ${body.question || ''}`;
   return sendJSON(res, 200, { answer, citations: [] });
+}
+
+// ✅ NEW: Server-side deduplication for repetitive content
+function deduplicateServerTranscript(transcript, session) {
+  const trimmed = transcript.trim();
+  const lower = trimmed.toLowerCase();
+  
+  // Filter out common repetitive phrases
+  const repetitivePhrases = [
+    'thank you for watching',
+    'thank you for watching.',
+    'boom',
+    'bzzz',
+    'yeah yeah yeah',
+    'ok ok ok',
+    'right right right'
+  ];
+  
+  // Check if this is a known repetitive phrase
+  if (repetitivePhrases.includes(lower)) {
+    // Check recent transcript chunks (last 5 lines)
+    const recentLines = session.transcript.split('\n').slice(-5);
+    const recentLowerTexts = recentLines.map(line => line.toLowerCase());
+    
+    if (recentLowerTexts.includes(lower)) {
+      return null; // Skip this duplicate
+    }
+  }
+  
+  // Check for consecutive identical text
+  const lastLines = session.transcript.split('\n');
+  const lastLine = lastLines[lastLines.length - 1];
+  if (lastLine && lastLine.toLowerCase() === lower) {
+    return null; // Skip consecutive duplicate
+  }
+  
+  // Check for very similar text (simple character similarity)
+  if (lastLine && calculateSimilarity(lastLine.toLowerCase(), lower) > 0.9) {
+    return null; // Skip very similar content
+  }
+  
+  return trimmed;
+}
+
+// ✅ NEW: Calculate simple character-based similarity
+function calculateSimilarity(str1, str2) {
+  const set1 = new Set(str1);
+  const set2 = new Set(str2);
+  const intersection = new Set([...set1].filter(x => set2.has(x)));
+  const union = new Set([...set1, ...set2]);
+  
+  return union.size > 0 ? intersection.size / union.size : 0;
 }
 
 // New: Transcribe audio buffer directly (no file I/O)

@@ -647,7 +647,73 @@ extension SessionTranscriptStore {
     func addServerTranscript(_ text: String) {
         print("🔍 DEBUG: addServerTranscript called with text: \(text.prefix(50))...")
         print("🔍 DEBUG: Current session: \(currentSessionTranscript?.sessionId ?? "NIL")")
-        addTranscriptSegment(text: text, confidence: 1.0, source: .server)
+        
+        // ✅ FIX: Add real-time deduplication for repetitive content
+        let cleanedText = deduplicateRealtimeText(text)
+        guard !cleanedText.isEmpty else {
+            print("🔍 Skipped duplicate/repetitive transcript: \(text)")
+            return
+        }
+        
+        addTranscriptSegment(text: cleanedText, confidence: 1.0, source: .server)
+    }
+    
+    // ✅ NEW: Real-time deduplication for live transcripts
+    private func deduplicateRealtimeText(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        
+        // Filter out common repetitive phrases
+        let repetitivePhrases = [
+            "thank you for watching",
+            "thank you for watching.",
+            "boom",
+            "bzzz",
+            "yeah yeah yeah",
+            "ok ok ok",
+            "right right right"
+        ]
+        
+        if repetitivePhrases.contains(lower) {
+            // Check if we already have this phrase in recent segments (last 10)
+            let recentSegments = transcriptSegments.suffix(10)
+            let recentTexts = recentSegments.map { $0.text.lowercased() }
+            
+            if recentTexts.contains(lower) {
+                print("🔍 Filtering duplicate phrase: \(trimmed)")
+                return "" // Skip this duplicate
+            }
+        }
+        
+        // Check for identical consecutive transcripts
+        if let lastSegment = transcriptSegments.last,
+           lastSegment.text.lowercased() == lower {
+            print("🔍 Filtering consecutive duplicate: \(trimmed)")
+            return "" // Skip consecutive identical text
+        }
+        
+        // Check for very similar text (edit distance)
+        if let lastSegment = transcriptSegments.last {
+            let similarity = calculateStringSimilarity(lastSegment.text.lowercased(), lower)
+            if similarity > 0.9 { // 90% similar
+                print("🔍 Filtering very similar text: \(trimmed)")
+                return ""
+            }
+        }
+        
+        return trimmed
+    }
+    
+    // ✅ NEW: Calculate string similarity using simple character comparison
+    private func calculateStringSimilarity(_ str1: String, _ str2: String) -> Double {
+        let len1 = str1.count
+        let len2 = str2.count
+        let maxLen = max(len1, len2)
+        
+        guard maxLen > 0 else { return 1.0 }
+        
+        let commonChars = Set(str1).intersection(Set(str2)).count
+        return Double(commonChars) / Double(maxLen)
     }
     
     // For final processed transcript
