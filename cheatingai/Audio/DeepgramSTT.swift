@@ -406,6 +406,60 @@ private struct DeepgramResponse: Codable {
         case metadata
         case error
     }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+        isFinal = try container.decodeIfPresent(Bool.self, forKey: .isFinal)
+        speechFinal = try container.decodeIfPresent(Bool.self, forKey: .speechFinal)
+        start = try container.decodeIfPresent(Double.self, forKey: .start)
+        duration = try container.decodeIfPresent(Double.self, forKey: .duration)
+        metadata = try container.decodeIfPresent(DeepgramMetadata.self, forKey: .metadata)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+        
+        // Handle channel which can be either an object or array
+        if let channelValue = try? container.decodeIfPresent(DeepgramChannel.self, forKey: .channel) {
+            channel = channelValue
+        } else {
+            // If channel is not a DeepgramChannel object, try to decode it as an array or other type
+            // This handles cases like "channel":[0,1] in SpeechStarted messages
+            _ = try? container.decodeIfPresent(AnyCodable.self, forKey: .channel)
+            channel = nil
+        }
+    }
+}
+
+// Helper struct to handle any JSON value
+private struct AnyCodable: Codable {
+    let value: Any
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        
+        if container.decodeNil() {
+            value = NSNull()
+        } else if let bool = try? container.decode(Bool.self) {
+            value = bool
+        } else if let int = try? container.decode(Int.self) {
+            value = int
+        } else if let double = try? container.decode(Double.self) {
+            value = double
+        } else if let string = try? container.decode(String.self) {
+            value = string
+        } else if let array = try? container.decode([AnyCodable].self) {
+            value = array.map { $0.value }
+        } else if let dictionary = try? container.decode([String: AnyCodable].self) {
+            value = dictionary.mapValues { $0.value }
+        } else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "AnyCodable cannot decode value")
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        let container = encoder.singleValueContainer()
+        throw EncodingError.invalidValue(value, EncodingError.Context(codingPath: container.codingPath, debugDescription: "AnyCodable cannot encode value"))
+    }
 }
 
 private struct DeepgramChannel: Codable {
