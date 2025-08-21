@@ -4,6 +4,7 @@ import ScreenCaptureKit
 import AppKit
 import CoreGraphics
 import Combine
+import os.log
 
 // MARK: - Audio Quality Models
 
@@ -22,12 +23,27 @@ final class AudioCaptureManager: NSObject, ObservableObject {
     @Published var isListening = false
     @Published var liveTranscript = ""
     @Published var connectionStatus = "Ready"
+    
+    // MARK: - Debug Properties
+    @Published var isAudioFlowing = false
+    @Published var audioLevelDebug: Float = 0.0
+    @Published var lastAudioTimestamp: Date?
+    private let logger = Logger(subsystem: "com.cheating.cheatingai", category: "AudioCapture")
 
     // MARK: - Professional Audio Capture Properties
     private var screenCaptureSession: SCStream?
     private var audioEngine = AVAudioEngine()
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
+    // ScreenCaptureKit → Deepgram conversion
+    private var scInputFormat: AVAudioFormat?
+    private let dgTargetFormat: AVAudioFormat = AVAudioFormat(
+        commonFormat: .pcmFormatInt16,
+        sampleRate: 16_000,
+        channels: 1,
+        interleaved: true
+    )!
+    private var scToDgConverter: AVAudioConverter?
     
     // MARK: - Deepgram STT Integration
     private let deepgramSTT = DeepgramSTT()
@@ -82,7 +98,7 @@ final class AudioCaptureManager: NSObject, ObservableObject {
                 connectionStatus = "Connecting to Deepgram..."
                 
                 // Connect to Deepgram first
-                try await deepgramSTT.connect()
+                deepgramSTT.connect()
                 
                 connectionStatus = "Starting audio capture..."
                 
@@ -116,7 +132,7 @@ final class AudioCaptureManager: NSObject, ObservableObject {
         await stopScreenCapture()
         
         // Finalize Deepgram connection
-        await deepgramSTT.finalizeAndDisconnect()
+        deepgramSTT.finalizeAndDisconnect()
         
         // Save transcript
         await finishSession()
@@ -136,64 +152,20 @@ final class AudioCaptureManager: NSObject, ObservableObject {
     // MARK: - Deepgram Integration
     
     private func setupDeepgramIntegration() {
-        // Listen to Deepgram transcript results
-        deepgramSTT.onTranscriptResult = { [weak self] result in
-            Task { @MainActor in
-                await self?.handleDeepgramResult(result)
-            }
-        }
+        // Set the delegate to SessionTranscriptStore for transcript handling
+        deepgramSTT.delegate = SessionTranscriptStore.shared
         
-        // Listen to connection state changes
-        deepgramSTT.onConnectionStateChange = { [weak self] state in
-            Task { @MainActor in
-                self?.updateConnectionStatus(for: state)
-            }
-        }
+        // Update connection status when Deepgram connects/disconnects
+        deepgramSTT.$connectionStatus
+            .receive(on: DispatchQueue.main)
+            .assign(to: \.connectionStatus, on: self)
+            .store(in: &cancellables)
         
-        // Listen to errors
-        deepgramSTT.onError = { [weak self] error in
-            Task { @MainActor in
-                self?.connectionStatus = "Error: \(error.localizedDescription)"
-                print("❌ Deepgram error: \(error)")
-            }
-        }
-        
-        // Bind live transcript
-        deepgramSTT.$liveTranscript
+        // Update live transcript from Deepgram
+        deepgramSTT.$lastTranscription
             .receive(on: DispatchQueue.main)
             .assign(to: \.liveTranscript, on: self)
             .store(in: &cancellables)
-    }
-    
-    private func handleDeepgramResult(_ result: DeepgramResult) async {
-        // Skip empty results
-        guard !result.isEmpty else { return }
-        
-        if result.isFinal {
-            // Create transcript segment for finalized speech
-            let segment = SessionTranscriptStore.TranscriptSegment(
-                timestamp: Date(),
-                text: result.transcript,
-                confidence: Float(result.confidence),
-                source: .server
-            )
-            
-            finalizedSegments.append(segment)
-            
-            // Add to session transcript store
-            SessionTranscriptStore.shared.addTranscriptSegment(
-                text: result.transcript,
-                confidence: Float(result.confidence),
-                source: .server
-            )
-            
-            // ✅ NEW: Store important transcripts in vector memory
-            await storeTranscriptInMemory(result.transcript)
-            
-            print("📝 Final transcript: \(result.transcript)")
-        } else {
-            print("📝 Interim transcript: \(result.transcript)")
-        }
     }
     
     // ✅ NEW: Store transcript content in vector memory system
@@ -289,20 +261,7 @@ final class AudioCaptureManager: NSObject, ObservableObject {
         return max(0.0, min(1.0, importance))
     }
     
-    private func updateConnectionStatus(for state: DeepgramConnectionState) {
-        switch state {
-        case .disconnected:
-            connectionStatus = "Disconnected"
-        case .connecting:
-            connectionStatus = "Connecting..."
-        case .connected:
-            connectionStatus = "Connected"
-        case .error(let error):
-            connectionStatus = "Error: \(error.localizedDescription)"
-        case .finalized:
-            connectionStatus = "Finalizing..."
-        }
-    }
+
     
     // MARK: - Session Management
     
@@ -326,11 +285,29 @@ final class AudioCaptureManager: NSObject, ObservableObject {
     // MARK: - Audio Capture (Enhanced for Deepgram)
     
     private func startScreenCaptureWithAudio() async throws {
+        logger.info("🎬 Starting audio capture...")
+        
         // Get available content for screen + audio capture
         let availableContent = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         
         guard let display = availableContent.displays.first else {
+            logger.error("❌ No display available for capture")
             throw AudioCaptureError.noDisplayAvailable
+        }
+        
+        logger.info("🖥️ Display: \(display.width)x\(display.height)")
+        
+        // Check system audio devices
+        let audioDevices = AVCaptureDevice.devices(for: .audio)
+        logger.info("🎤 Available audio devices: \(audioDevices.count)")
+        
+        for device in audioDevices {
+            logger.info("📱 Device: \(device.localizedName) - ID: \(device.uniqueID)")
+        }
+        
+        // Log which applications can provide audio
+        for app in availableContent.applications {
+            logger.info("📱 App: \(app.applicationName) - Bundle: \(app.bundleIdentifier) - Process ID: \(app.processID)")
         }
         
         // Configure stream for screen + audio capture
@@ -343,16 +320,45 @@ final class AudioCaptureManager: NSObject, ObservableObject {
         configuration.channelCount = 1
         configuration.excludesCurrentProcessAudio = true  // Don't capture Nova's own audio
         
+        logger.info("⚙️ Stream configuration - Audio: \(configuration.capturesAudio), Sample Rate: \(configuration.sampleRate), Channels: \(configuration.channelCount)")
+        
         // Create and start the capture stream
         screenCaptureSession = SCStream(filter: filter, configuration: configuration, delegate: self)
         
         // Add audio stream output
         try screenCaptureSession?.addStreamOutput(self, type: .audio, sampleHandlerQueue: .main)
+        // Attach a screen output to suppress ScreenCaptureKit warnings even if we ignore frames
+        try? screenCaptureSession?.addStreamOutput(self, type: .screen, sampleHandlerQueue: .main)
         
         // Start capture
         try await screenCaptureSession?.startCapture()
         
+        // Start audio flow monitoring
+        checkAudioFlow()
+        
+        logger.info("✅ System audio capture started for Deepgram STT")
         print("✅ System audio capture started for Deepgram STT")
+    }
+    
+    // MARK: - Audio Flow Monitoring
+    
+    private func checkAudioFlow() {
+        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+            if let lastTimestamp = self.lastAudioTimestamp {
+                let timeSinceLastAudio = Date().timeIntervalSince(lastTimestamp)
+                if timeSinceLastAudio > 3.0 {
+                    self.logger.warning("⚠️ No audio received for \(String(format: "%.1f", timeSinceLastAudio)) seconds")
+                    DispatchQueue.main.async {
+                        self.isAudioFlowing = false
+                    }
+                }
+            } else {
+                self.logger.warning("⚠️ No audio has been received yet")
+                DispatchQueue.main.async {
+                    self.isAudioFlowing = false
+                }
+            }
+        }
     }
     
     private func stopScreenCapture() async {
@@ -674,39 +680,99 @@ final class AudioCaptureManager: NSObject, ObservableObject {
     private func processAudioFromSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
         guard isListening else { return }
         
-        // Extract audio data from sample buffer
-        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        // 🔍 DEBUG: Log every audio buffer received
+        logger.debug("🎵 Audio buffer received - timestamp: \(Date())")
+        lastAudioTimestamp = Date()
+        isAudioFlowing = true
         
-        var length = 0
-        var dataPointer: UnsafeMutablePointer<Int8>?
-        let status = CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: &length, totalLengthOut: nil, dataPointerOut: &dataPointer)
+        // Discover source format from CMSampleBuffer
+        guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbdPtr = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else {
+            logger.error("❌ No audio format description")
+            return
+        }
+        var asbd = asbdPtr.pointee
+        guard let sourceFormat = AVAudioFormat(streamDescription: &asbd) else {
+            logger.error("❌ Failed to create source AVAudioFormat")
+            return
+        }
+        scInputFormat = sourceFormat
         
-        guard status == kCMBlockBufferNoErr, let dataPointer = dataPointer else { return }
-        
-        // Convert to PCM16 samples
-        let samples = dataPointer.withMemoryRebound(to: Int16.self, capacity: length / 2) { pointer in
-            Array(UnsafeBufferPointer(start: pointer, count: length / 2))
+        // Build an AVAudioPCMBuffer and copy PCM from CMSampleBuffer safely
+        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard let srcBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: frameCount) else {
+            logger.error("❌ Failed to allocate source AVAudioPCMBuffer")
+            return
+        }
+        srcBuffer.frameLength = frameCount
+        // Use CoreMedia to copy PCM correctly (handles interleaved/planar and channel counts)
+        let cmStatus = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+            sampleBuffer,
+            at: 0,
+            frameCount: Int32(frameCount),
+            into: srcBuffer.mutableAudioBufferList
+        )
+        if cmStatus != noErr {
+            logger.error("❌ Failed to copy PCM into AVAudioPCMBuffer (status: \(cmStatus))")
+            return
         }
         
-        // Convert Int16 samples to Data for Deepgram
+        // Create or reuse converter to 16k mono Int16
+        if scToDgConverter == nil || scToDgConverter?.inputFormat != sourceFormat {
+            scToDgConverter = AVAudioConverter(from: sourceFormat, to: dgTargetFormat)
+            logger.info("🔁 Created SC→DG converter: src sr=\(sourceFormat.sampleRate), ch=\(sourceFormat.channelCount), fmt=\(sourceFormat.commonFormat.rawValue) → 16k mono int16")
+        }
+        guard let converter = scToDgConverter,
+              let outBuffer = AVAudioPCMBuffer(pcmFormat: dgTargetFormat, frameCapacity: frameCount) else {
+            logger.error("❌ Converter or output buffer unavailable")
+            return
+        }
+        
+        var convError: NSError?
+        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+            outStatus.pointee = .haveData
+            return srcBuffer
+        }
+        converter.convert(to: outBuffer, error: &convError, withInputFrom: inputBlock)
+        if let e = convError {
+            logger.error("❌ Audio convert error: \(e.localizedDescription)")
+            return
+        }
+        
+        // Extract converted Int16 samples
+        guard let ch = outBuffer.int16ChannelData else {
+            logger.error("❌ No int16 channel data after conversion")
+            return
+        }
+        let sampleCount = Int(outBuffer.frameLength)
+        let samples = Array(UnsafeBufferPointer(start: ch[0], count: sampleCount))
         let sampleData = Data(bytes: samples, count: samples.count * MemoryLayout<Int16>.size)
         accumulatingPCM.append(sampleData)
         accumulatedSamples += samples.count
         
-        // Check if we have enough data for a chunk (50ms = 1600 bytes)
+        // Audio level for debug (converted domain)
+        let audioLevel = calculateAudioLevel(samples: samples)
+        DispatchQueue.main.async { self.audioLevelDebug = audioLevel }
+        logger.debug("🔊 Audio level: \(audioLevel) dB, Samples: \(samples.count), Accum: \(self.accumulatingPCM.count) bytes")
+        
+        // Ensure 16-bit alignment
+        assert(accumulatingPCM.count % 2 == 0, "PCM buffer misaligned (expected even number of bytes)")
+        
+        // Chunk and send (50ms = 1600 bytes @ 16k mono int16)
         while accumulatingPCM.count >= chunkSizeBytes {
             let chunk = accumulatingPCM.prefix(chunkSizeBytes)
             accumulatingPCM.removeFirst(chunkSizeBytes)
-            
-            // Send to Deepgram STT
-            deepgramSTT.sendAudioData(Data(chunk))
+            let dataChunk = Data(chunk)
+            deepgramSTT.sendAudioData(dataChunk)
+            logger.debug("📦 Enqueued/sent audio chunk to Deepgram - size: \(chunk.count) bytes")
         }
         
-        // Voice activity detection
+        // Voice activity detection (converted samples)
         let rms = calculateRMS(samples)
         if rms > voiceThreshold {
             lastVoiceActivity = Date()
             lastNonSilenceAt = Date()
+            logger.debug("🎤 Voice activity detected - RMS: \(rms)")
         }
     }
     
@@ -742,6 +808,21 @@ final class AudioCaptureManager: NSObject, ObservableObject {
         accumulatingPCM.removeAll(keepingCapacity: true)
         accumulatedSamples = 0
         lastNonSilenceAt = Date()
+    }
+    
+    // MARK: - Audio Level Calculation
+    
+    private func calculateAudioLevel(samples: [Int16]) -> Float {
+        guard !samples.isEmpty else { return -100.0 }
+        
+        let sum = samples.reduce(0.0) { result, sample in
+            return result + (Float(sample) * Float(sample))
+        }
+        
+        let rms = sqrt(sum / Float(samples.count))
+        let db = 20.0 * log10(rms / 32767.0)
+        
+        return db
     }
     
     // MARK: - Audio Quality Validation (Improved)

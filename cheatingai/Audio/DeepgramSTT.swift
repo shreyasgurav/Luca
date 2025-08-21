@@ -1,497 +1,339 @@
 import Foundation
-import Network
-import Combine
+import os.log
 
-/// Deepgram STT result model
-struct DeepgramResult {
-    let transcript: String
-    let isFinal: Bool
-    let startTime: TimeInterval
-    let endTime: TimeInterval
-    let confidence: Double
-    let channel: Int
-    
-    var isEmpty: Bool {
-        return transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+protocol DeepgramSTTDelegate: AnyObject {
+    func didReceiveTranscription(_ text: String, isFinal: Bool, confidence: Float)
+    func didReceiveError(_ error: Error)
+    func didConnect()
+    func didDisconnect()
 }
 
-/// Deepgram connection state
-enum DeepgramConnectionState: Equatable {
-    case disconnected
-    case connecting
-    case connected
-    case error(Error)
-    case finalized
+class DeepgramSTT: NSObject, ObservableObject {
+    private let logger = Logger(subsystem: "com.cheating.cheatingai", category: "DeepgramSTT")
     
-    static func == (lhs: DeepgramConnectionState, rhs: DeepgramConnectionState) -> Bool {
-        switch (lhs, rhs) {
-        case (.disconnected, .disconnected),
-             (.connecting, .connecting),
-             (.connected, .connected),
-             (.finalized, .finalized):
-            return true
-        case (.error, .error):
-            return true
-        default:
-            return false
-        }
+    weak var delegate: DeepgramSTTDelegate?
+    private var webSocket: URLSessionWebSocketTask?
+    private var urlSession: URLSession?
+    
+    // WebSocket state and buffering
+    private enum WSState { case idle, connecting, open, closing, closed }
+    private var state: WSState = .idle
+    private var pendingChunks: [Data] = []
+    private let maxPendingChunks = 200
+    private var pingTimer: Timer?
+    
+    // Debug counters
+    private var audioDataSentCount = 0
+    private var transcriptionReceivedCount = 0
+    private var connectionAttempts = 0
+    
+    @Published var isConnected = false
+    @Published var lastTranscription = ""
+    @Published var connectionStatus = "Disconnected"
+    
+    override init() {
+        super.init()
+        setupURLSession()
     }
-}
-
-/// Deepgram errors
-enum DeepgramError: LocalizedError {
-    case invalidAPIKey
-    case connectionFailed(String)
-    case authenticationFailed
-    case networkError(Error)
-    case invalidResponse(String)
-    case configurationError(String)
     
-    var errorDescription: String? {
-        switch self {
-        case .invalidAPIKey:
-            return "Invalid Deepgram API key. Please check your configuration."
-        case .connectionFailed(let reason):
-            return "Connection failed: \(reason)"
-        case .authenticationFailed:
-            return "Authentication failed. Please verify your Deepgram API key."
-        case .networkError(let error):
-            return "Network error: \(error.localizedDescription)"
-        case .invalidResponse(let response):
-            return "Invalid response from Deepgram: \(response)"
-        case .configurationError(let message):
-            return "Configuration error: \(message)"
-        }
-    }
-}
-
-/// Professional Deepgram STT WebSocket client
-@MainActor
-final class DeepgramSTT: ObservableObject {
-    // MARK: - Published Properties
-    @Published var connectionState: DeepgramConnectionState = .disconnected
-    @Published var isConnected: Bool = false
-    @Published var liveTranscript: String = ""
-    @Published var error: DeepgramError?
-    
-    // MARK: - Callbacks
-    var onTranscriptResult: ((DeepgramResult) -> Void)?
-    var onConnectionStateChange: ((DeepgramConnectionState) -> Void)?
-    var onError: ((DeepgramError) -> Void)?
-    
-    // MARK: - Private Properties
-    private var webSocketTask: URLSessionWebSocketTask?
-    private var keepAliveTimer: Timer?
-    private let session: URLSession
-    private var currentUtterance: String = ""
-    private var accumulatedTranscript: String = ""
-    
-    // Configuration
-    private let apiKey = DeepgramConfig.apiKey
-    private let streamingURL = DeepgramConfig.streamingURL
-    private let keepAliveInterval = DeepgramConfig.keepAliveInterval
-    
-    // MARK: - Initialization
-    init() {
+    private func setupURLSession() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = DeepgramConfig.connectionTimeout
-        config.timeoutIntervalForResource = DeepgramConfig.connectionTimeout
-        self.session = URLSession(configuration: config)
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 0 // No timeout for WebSocket
+        urlSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
     
-    deinit {
-        // Best-effort cleanup without async in deinit
-        keepAliveTimer?.invalidate()
-        keepAliveTimer = nil
-        webSocketTask?.cancel(with: .goingAway, reason: nil)
-        webSocketTask = nil
-    }
-    
-    // MARK: - Public Interface
-    
-    /// Connect to Deepgram WebSocket
-    func connect() async throws {
-        guard DeepgramConfig.isConfigured else {
-            let error = DeepgramError.configurationError("Deepgram API key not configured")
-            await handleError(error)
-            throw error
-        }
-        
-        guard webSocketTask == nil else {
-            print("⚠️ Deepgram: Already connected or connecting")
+    func connect() {
+        let apiKey = DeepgramConfig.apiKey
+        guard !apiKey.isEmpty else {
+            logger.error("❌ No Deepgram API key found")
             return
         }
         
-        await updateConnectionState(.connecting)
+        connectionAttempts += 1
+        logger.info("🔄 Connection attempt #\(self.connectionAttempts)")
         
-        do {
-            try await establishConnection()
-            await updateConnectionState(.connected)
-            startKeepAlive()
-            startReceiving()
-            print("✅ Deepgram: Connected successfully")
-        } catch {
-            let deepgramError = error as? DeepgramError ?? .networkError(error)
-            await handleError(deepgramError)
-            throw deepgramError
-        }
-    }
-    
-    /// Send audio data to Deepgram
-    func sendAudioData(_ audioData: Data) {
-        guard let webSocketTask = webSocketTask,
-              connectionState == .connected else {
-            print("⚠️ Deepgram: Cannot send audio - not connected")
+        // Enhanced WebSocket URL with better parameters
+        var urlComponents = URLComponents()
+        urlComponents.scheme = "wss"
+        urlComponents.host = "api.deepgram.com"
+        urlComponents.path = "/v1/listen"
+        
+        urlComponents.queryItems = [
+            URLQueryItem(name: "model", value: "nova-3"),
+            URLQueryItem(name: "language", value: "en-US"),
+            URLQueryItem(name: "sample_rate", value: "16000"),
+            URLQueryItem(name: "encoding", value: "linear16"),
+            URLQueryItem(name: "interim_results", value: "true"),
+            URLQueryItem(name: "smart_format", value: "true"),
+            URLQueryItem(name: "vad_events", value: "true"),
+            URLQueryItem(name: "endpointing", value: "300")
+        ]
+        
+        guard let url = urlComponents.url else {
+            logger.error("❌ Failed to create WebSocket URL")
             return
         }
         
-        webSocketTask.send(.data(audioData)) { [weak self] error in
-            if let error = error {
-                print("❌ Deepgram: Failed to send audio data: \(error)")
-                Task { @MainActor in
-                    await self?.handleError(.networkError(error))
-                }
-            }
-        }
-    }
-    
-    /// Finalize the stream and close connection
-    func finalizeAndDisconnect() async {
-        guard webSocketTask != nil else { return }
+        logger.info("🔗 Connecting to: \(url)")
         
-        print("🔄 Deepgram: Finalizing stream...")
-        
-        // Send finalize message to flush any remaining audio
-        await sendControlMessage(type: "Finalize")
-        
-        // Give a moment for the server to process
-        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-        
-        // Send close stream message
-        await sendControlMessage(type: "CloseStream")
-        
-        // Disconnect
-        await disconnect()
-    }
-    
-    /// Disconnect from Deepgram
-    func disconnect() async {
-        keepAliveTimer?.invalidate()
-        keepAliveTimer = nil
-        
-        webSocketTask?.cancel(with: .goingAway, reason: nil)
-        webSocketTask = nil
-        
-        await updateConnectionState(.disconnected)
-        print("✅ Deepgram: Disconnected")
-    }
-    
-    // MARK: - Private Methods
-    
-    private func establishConnection() async throws {
-        // Build WebSocket URL with parameters
-        guard var components = URLComponents(string: streamingURL) else {
-            throw DeepgramError.configurationError("Invalid streaming URL")
-        }
-        
-        components.query = DeepgramConfig.queryString
-        
-        guard let url = components.url else {
-            throw DeepgramError.configurationError("Failed to build streaming URL")
-        }
-        
-        // Create WebSocket request with auth header
         var request = URLRequest(url: url)
         request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = DeepgramConfig.connectionTimeout
+        request.setValue("YourApp/1.0 (macOS)", forHTTPHeaderField: "User-Agent")
         
-        // Create WebSocket task
-        webSocketTask = session.webSocketTask(with: request)
-        webSocketTask?.resume()
+        webSocket = urlSession?.webSocketTask(with: request)
+        webSocket?.resume()
+        state = .connecting
         
-        print("🔄 Deepgram: Connecting to \(url)")
+        DispatchQueue.main.async {
+            self.connectionStatus = "Connecting..."
+        }
+        
+        // Start listening for messages immediately
+        receiveMessage()
     }
     
-    private func startReceiving() {
-        webSocketTask?.receive { [weak self] result in
-            Task { @MainActor in
-                await self?.handleWebSocketMessage(result)
-                // Continue receiving
-                self?.startReceiving()
+    func disconnect() {
+        logger.info("🔄 Disconnecting WebSocket...")
+        
+        // Send close frame gracefully
+        pingTimer?.invalidate(); pingTimer = nil
+        state = .closing
+        webSocket?.cancel(with: .goingAway, reason: nil)
+        webSocket = nil
+        
+        DispatchQueue.main.async {
+            self.isConnected = false
+            self.connectionStatus = "Disconnected"
+        }
+        
+        delegate?.didDisconnect()
+    }
+    
+    func sendAudioData(_ audioData: Data) {
+        guard let webSocket = webSocket else {
+            logger.error("❌ WebSocket is nil")
+            return
+        }
+        
+        guard state == .open else {
+            if pendingChunks.count >= maxPendingChunks { pendingChunks.removeFirst() }
+            pendingChunks.append(audioData)
+            logger.debug("🔒 Queued audio chunk (WS not open). pending=\(self.pendingChunks.count)")
+            return
+        }
+        
+        audioDataSentCount += 1
+        webSocket.send(.data(audioData)) { [weak self] error in
+            if let error = error {
+                self?.logger.error("❌ Error sending audio: \(error)")
+                self?.state = .closed
+            } else if let count = self?.audioDataSentCount, count % 100 == 0 {
+                self?.logger.debug("📤 Audio sent #\(count)")
             }
         }
     }
     
-    private func handleWebSocketMessage(_ result: Result<URLSessionWebSocketTask.Message, Error>) async {
-        switch result {
-        case .success(let message):
-            await processMessage(message)
-            
-        case .failure(let error):
-            print("❌ Deepgram WebSocket error: \(error)")
-            await handleError(.networkError(error))
+    private func receiveMessage() {
+        webSocket?.receive { [weak self] result in
+            switch result {
+            case .success(let message):
+                self?.handleMessage(message)
+                // Continue listening for more messages
+                self?.receiveMessage()
+                
+            case .failure(let error):
+                self?.logger.error("❌ WebSocket receive error: \(error)")
+                self?.handleError(error)
+            }
         }
     }
     
-    private func processMessage(_ message: URLSessionWebSocketTask.Message) async {
+    private func handleMessage(_ message: URLSessionWebSocketTask.Message) {
         switch message {
         case .string(let text):
-            await handleJSONMessage(text)
+            transcriptionReceivedCount += 1
+            logger.debug("📝 Received message #\(self.transcriptionReceivedCount)")
+            parseDeepgramResponse(text)
             
         case .data(let data):
-            print("📊 Deepgram: Received binary data (\(data.count) bytes)")
+            logger.debug("📦 Received binary data: \(data.count) bytes")
             
         @unknown default:
-            print("⚠️ Deepgram: Unknown message type")
+            logger.warning("⚠️ Unknown message type")
         }
     }
     
-    private func handleJSONMessage(_ jsonString: String) async {
-        guard let data = jsonString.data(using: .utf8) else { return }
+    private func parseDeepgramResponse(_ jsonString: String) {
+        logger.debug("📄 Raw response: \(jsonString)")
+        
+        guard let data = jsonString.data(using: .utf8) else {
+            logger.error("❌ Failed to convert response to data")
+            return
+        }
         
         do {
-            let response = try JSONDecoder().decode(DeepgramResponse.self, from: data)
-            await processDeepgramResponse(response)
-        } catch {
-            print("❌ Deepgram: Failed to decode response: \(error)")
-            print("Raw response: \(jsonString)")
-        }
-    }
-    
-    private func processDeepgramResponse(_ response: DeepgramResponse) async {
-        switch response.type {
-        case "Results":
-            await handleTranscriptResults(response)
-            
-        case "Metadata":
-            print("📊 Deepgram metadata: \(String(describing: response.metadata))")
-            
-        case "SpeechStarted":
-            print("🎤 Speech started")
-            
-        case "UtteranceEnd":
-            print("⏸️ Utterance ended")
-            
-        case "Error":
-            if let errorMessage = response.error {
-                await handleError(.invalidResponse(errorMessage))
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                logger.error("❌ Invalid JSON structure")
+                return
             }
             
-        default:
-            print("📝 Deepgram: Unknown message type: \(response.type ?? "unknown")")
-        }
-    }
-    
-    private func handleTranscriptResults(_ response: DeepgramResponse) async {
-        guard let channel = response.channel?.alternatives?.first else { return }
-        
-        let transcript = channel.transcript ?? ""
-        let isFinal = response.isFinal ?? response.speechFinal ?? false
-        let confidence = channel.confidence ?? 0.0
-        
-        // Skip empty transcripts
-        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        
-        let result = DeepgramResult(
-            transcript: transcript,
-            isFinal: isFinal,
-            startTime: response.start ?? 0.0,
-            endTime: (response.start ?? 0.0) + (response.duration ?? 0.0),
-            confidence: confidence,
-            channel: 0
-        )
-        
-        // Update live transcript
-        if isFinal {
-            accumulatedTranscript += " " + transcript
-            currentUtterance = ""
-        } else {
-            currentUtterance = transcript
-        }
-        
-        liveTranscript = (accumulatedTranscript + " " + currentUtterance).trimmingCharacters(in: .whitespaces)
-        
-        // Notify callback
-        onTranscriptResult?(result)
-        
-        print("📝 Deepgram: \(isFinal ? "Final" : "Interim") - '\(transcript)' (confidence: \(String(format: "%.2f", confidence)))")
-    }
-    
-    private func startKeepAlive() {
-        keepAliveTimer = Timer.scheduledTimer(withTimeInterval: keepAliveInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                await self?.sendControlMessage(type: "KeepAlive")
-            }
-        }
-    }
-    
-    private func sendControlMessage(type: String) async {
-        guard let webSocketTask = webSocketTask else { return }
-        
-        let message = ["type": type]
-        
-        do {
-            let data = try JSONSerialization.data(withJSONObject: message)
-            let jsonString = String(data: data, encoding: .utf8) ?? ""
+            // Log all top-level keys for debugging
+            logger.debug("🔍 JSON keys: \(Array(json.keys))")
             
-            webSocketTask.send(.string(jsonString)) { error in
-                if let error = error {
-                    print("❌ Deepgram: Failed to send \(type): \(error)")
+            // Handle different response types
+            if let type = json["type"] as? String {
+                logger.info("📋 Response type: \(type)")
+                
+                switch type {
+                case "Results":
+                    handleResultsResponse(json)
+                case "UtteranceEnd":
+                    logger.info("🏁 Utterance ended")
+                case "SpeechStarted":
+                    logger.info("🎤 Speech started")
+                case "Metadata":
+                    if let metadata = json["metadata"] as? [String: Any] {
+                        logger.info("📊 Metadata: \(metadata)")
+                    }
+                default:
+                    logger.warning("❓ Unknown response type: \(type)")
+                }
+            } else {
+                // Some responses might not have a 'type' field
+                logger.debug("📝 Response without type field")
+                
+                // Check if this is a results response without explicit type
+                if json["channel"] != nil {
+                    handleResultsResponse(json)
                 }
             }
+            
         } catch {
-            print("❌ Deepgram: Failed to encode \(type) message: \(error)")
+            logger.error("❌ JSON parsing error: \(error)")
+            logger.error("Raw JSON: \(jsonString)")
         }
     }
     
-    private func updateConnectionState(_ state: DeepgramConnectionState) async {
-        connectionState = state
-        isConnected = (state == .connected)
-        onConnectionStateChange?(state)
-    }
-    
-    private func handleError(_ error: DeepgramError) async {
-        self.error = error
-        await updateConnectionState(.error(error))
-        onError?(error)
-        print("❌ Deepgram error: \(error.localizedDescription)")
-    }
-    
-    // MARK: - Helper Methods
-    
-    /// Clear accumulated transcript
-    func clearTranscript() {
-        accumulatedTranscript = ""
-        currentUtterance = ""
-        liveTranscript = ""
-    }
-    
-    /// Get connection status description
-    var connectionStatusDescription: String {
-        switch connectionState {
-        case .disconnected:
-            return "Disconnected"
-        case .connecting:
-            return "Connecting..."
-        case .connected:
-            return "Connected"
-        case .error(let error):
-            return "Error: \(error.localizedDescription)"
-        case .finalized:
-            return "Finalized"
+    private func handleResultsResponse(_ json: [String: Any]) {
+        logger.debug("🔍 Processing Results response")
+        
+        guard let channel = json["channel"] as? [String: Any] else {
+            logger.warning("⚠️ No 'channel' in Results response")
+            return
         }
-    }
-}
-
-// MARK: - Deepgram Response Models
-
-private struct DeepgramResponse: Codable {
-    let type: String?
-    let channel: DeepgramChannel?
-    let isFinal: Bool?
-    let speechFinal: Bool?
-    let start: Double?
-    let duration: Double?
-    let metadata: DeepgramMetadata?
-    let error: String?
-    
-    private enum CodingKeys: String, CodingKey {
-        case type
-        case channel
-        case isFinal = "is_final"
-        case speechFinal = "speech_final"
-        case start
-        case duration
-        case metadata
-        case error
-    }
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
         
-        type = try container.decodeIfPresent(String.self, forKey: .type)
-        isFinal = try container.decodeIfPresent(Bool.self, forKey: .isFinal)
-        speechFinal = try container.decodeIfPresent(Bool.self, forKey: .speechFinal)
-        start = try container.decodeIfPresent(Double.self, forKey: .start)
-        duration = try container.decodeIfPresent(Double.self, forKey: .duration)
-        metadata = try container.decodeIfPresent(DeepgramMetadata.self, forKey: .metadata)
-        error = try container.decodeIfPresent(String.self, forKey: .error)
+        guard let alternatives = channel["alternatives"] as? [[String: Any]], !alternatives.isEmpty else {
+            logger.warning("⚠️ No alternatives in Results response")
+            return
+        }
         
-        // Handle channel which can be either an object or array
-        if let channelValue = try? container.decodeIfPresent(DeepgramChannel.self, forKey: .channel) {
-            channel = channelValue
+        let firstAlternative = alternatives[0]
+        let transcript = firstAlternative["transcript"] as? String ?? ""
+        let confidence = (firstAlternative["confidence"] as? NSNumber)?.floatValue ?? 0.0
+        let isFinal = json["is_final"] as? Bool ?? false
+        
+        logger.info("📝 Transcript: '\(transcript)' (confidence: \(confidence), final: \(isFinal))")
+        
+        // Update UI on main thread
+        DispatchQueue.main.async {
+            self.lastTranscription = transcript
+        }
+        
+        // Don't process empty transcripts
+        if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            delegate?.didReceiveTranscription(transcript, isFinal: isFinal, confidence: confidence)
         } else {
-            // If channel is not a DeepgramChannel object, try to decode it as an array or other type
-            // This handles cases like "channel":[0,1] in SpeechStarted messages
-            _ = try? container.decodeIfPresent(AnyCodable.self, forKey: .channel)
-            channel = nil
+            logger.debug("📝 Empty transcript - not processing")
         }
     }
-}
-
-// Helper struct to handle any JSON value
-private struct AnyCodable: Codable {
-    let value: Any
     
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
+    private func handleError(_ error: Error) {
+        logger.error("❌ Deepgram error: \(error)")
         
-        if container.decodeNil() {
-            value = NSNull()
-        } else if let bool = try? container.decode(Bool.self) {
-            value = bool
-        } else if let int = try? container.decode(Int.self) {
-            value = int
-        } else if let double = try? container.decode(Double.self) {
-            value = double
-        } else if let string = try? container.decode(String.self) {
-            value = string
-        } else if let array = try? container.decode([AnyCodable].self) {
-            value = array.map { $0.value }
-        } else if let dictionary = try? container.decode([String: AnyCodable].self) {
-            value = dictionary.mapValues { $0.value }
-        } else {
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "AnyCodable cannot decode value")
+        DispatchQueue.main.async {
+            self.isConnected = false
+            self.connectionStatus = "Error: \(error.localizedDescription)"
         }
+        
+        delegate?.didReceiveError(error)
+    }
+}
+
+// MARK: - URLSessionWebSocketDelegate
+extension DeepgramSTT: URLSessionWebSocketDelegate {
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        logger.info("✅ WebSocket connected")
+        state = .open
+        
+        DispatchQueue.main.async {
+            self.isConnected = true
+            self.connectionStatus = "Connected"
+        }
+        
+        // Drain pending buffered audio
+        if !self.pendingChunks.isEmpty {
+            self.logger.info("🚰 Draining \(self.pendingChunks.count) queued audio chunks")
+            let chunks = self.pendingChunks
+            self.pendingChunks.removeAll()
+            for chunk in chunks { self.sendAudioData(chunk) }
+        }
+        
+        // Start ping keep-alive
+        pingTimer?.invalidate()
+        pingTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
+            guard let self = self, self.state == .open else { return }
+            self.webSocket?.sendPing { err in
+                if let err = err { self.logger.error("❌ WebSocket ping failed: \(err.localizedDescription)") }
+            }
+        }
+        
+        delegate?.didConnect()
     }
     
-    func encode(to encoder: Encoder) throws {
-        let container = encoder.singleValueContainer()
-        throw EncodingError.invalidValue(value, EncodingError.Context(codingPath: container.codingPath, debugDescription: "AnyCodable cannot encode value"))
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        let reasonString = reason?.count ?? 0 > 0 ? String(data: reason!, encoding: .utf8) ?? "Unknown" : "No reason"
+        logger.info("🔌 WebSocket closed with code: \(closeCode.rawValue), reason: \(reasonString)")
+        
+        pingTimer?.invalidate(); pingTimer = nil
+        state = .closed
+        
+        DispatchQueue.main.async {
+            self.isConnected = false
+            self.connectionStatus = "Disconnected"
+        }
+        
+        delegate?.didDisconnect()
+    }
+    func finalizeAndDisconnect() {
+        logger.info("🏁 Finalizing Deepgram session...")
+        
+        // Send finalize control message (lowercase per Deepgram docs)
+        if state == .open {
+            let finalizeMessage = ["type": "finalize"]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: finalizeMessage),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                webSocket?.send(.string(jsonString)) { [weak self] error in
+                    if let error = error {
+                        self?.logger.error("❌ Failed to send finalize message: \(error)")
+                    }
+                    self?.disconnect()
+                }
+                return
+            }
+        }
+        disconnect()
     }
 }
 
-private struct DeepgramChannel: Codable {
-    let alternatives: [DeepgramAlternative]?
-}
-
-private struct DeepgramAlternative: Codable {
-    let transcript: String?
-    let confidence: Double?
-    let words: [DeepgramWord]?
-}
-
-private struct DeepgramWord: Codable {
-    let word: String?
-    let start: Double?
-    let end: Double?
-    let confidence: Double?
-}
-
-private struct DeepgramMetadata: Codable {
-    let requestId: String?
-    let modelInfo: DeepgramModelInfo?
-    
-    private enum CodingKeys: String, CodingKey {
-        case requestId = "request_id"
-        case modelInfo = "model_info"
+// MARK: - URLSessionDelegate
+extension DeepgramSTT: URLSessionDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            logger.error("❌ URLSession task completed with error: \(error)")
+            handleError(error)
+        }
+        pingTimer?.invalidate(); pingTimer = nil
+        state = .closed
     }
-}
-
-private struct DeepgramModelInfo: Codable {
-    let name: String?
-    let version: String?
-    let arch: String?
-    let languages: [String]?
 }

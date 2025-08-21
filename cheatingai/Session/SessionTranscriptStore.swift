@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 
 @MainActor
-final class SessionTranscriptStore {
+final class SessionTranscriptStore: DeepgramSTTDelegate {
     static let shared = SessionTranscriptStore()
     private init() {}
     
@@ -53,110 +53,17 @@ final class SessionTranscriptStore {
     
     // MARK: - Directory Setup
     private func getTranscriptsDirectory() throws -> URL {
-        print("🔍 DEBUG: getTranscriptsDirectory called")
-        
-        // Try to get the REAL user's Documents folder using system APIs
-        let realUserDocuments = getRealUserDocumentsFolder()
-        print("🔍 DEBUG: Real user Documents path: \(realUserDocuments.path)")
-        
-        // Check if this is NOT the sandboxed container
-        if !realUserDocuments.path.contains("Library/Containers") {
-            print("✅ Found real user Documents folder, not sandboxed")
-            
-            let userTranscriptsPath = realUserDocuments.appendingPathComponent(transcriptsDirectory)
-            print("🔍 DEBUG: User transcripts path: \(userTranscriptsPath.path)")
-            
-            // Create directory if it doesn't exist
-            if !fileManager.fileExists(atPath: userTranscriptsPath.path) {
-                print("🔍 DEBUG: User transcripts directory doesn't exist, creating...")
-                do {
-                    try fileManager.createDirectory(at: userTranscriptsPath, withIntermediateDirectories: true, attributes: nil)
-                    print("📁 Created user transcripts directory at: \(userTranscriptsPath.path)")
-                } catch {
-                    print("⚠️ Failed to create user transcripts directory: \(error.localizedDescription)")
-                }
-            } else {
-                print("📁 Using existing user transcripts directory at: \(userTranscriptsPath.path)")
-            }
-            
-            // Test write access to user's Documents folder
-            let testFile = userTranscriptsPath.appendingPathComponent(".user_test")
-            print("🔍 DEBUG: Testing write access to real user Documents: \(testFile.path)")
-            
-            do {
-                try "test".write(to: testFile, atomically: true, encoding: .utf8)
-                print("🔍 DEBUG: Real user Documents write test successful")
-                try fileManager.removeItem(at: testFile)
-                print("🔍 DEBUG: Real user Documents test file removed")
-                print("✅ Using real user's Documents folder")
-                return userTranscriptsPath
-            } catch {
-                print("⚠️ Cannot write to real user's Documents folder: \(error.localizedDescription)")
-                print("🔄 Falling back to other locations...")
-            }
-        } else {
-            print("⚠️ Real user Documents path is still sandboxed, trying alternatives...")
+        // Use Application Support to avoid sandbox writes to Documents
+        let base = try fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let appDir = base.appendingPathComponent("CheatingAI", isDirectory: true)
+        let transcriptsDir = appDir.appendingPathComponent(transcriptsDirectory, isDirectory: true)
+        if !fileManager.fileExists(atPath: appDir.path) {
+            try fileManager.createDirectory(at: appDir, withIntermediateDirectories: true, attributes: nil)
         }
-        
-        // Fallback locations - prioritize Downloads folder (usually has fewer restrictions)
-        let fallbackLocations = [
-            ("User Downloads", getRealUserDownloadsFolder()),
-            ("User Desktop", getRealUserDesktopFolder()),
-            ("App Documents", fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!)
-        ]
-        
-        for (locationName, basePath) in fallbackLocations {
-            let transcriptsPath = basePath.appendingPathComponent(transcriptsDirectory)
-            print("🔍 DEBUG: Trying fallback \(locationName): \(transcriptsPath.path)")
-            
-            // Skip if this is the sandboxed container (we want the real user folder)
-            if transcriptsPath.path.contains("Library/Containers") && locationName != "App Documents" {
-                print("⚠️ Skipping sandboxed container: \(transcriptsPath.path)")
-                continue
-            }
-            
-            // Create directory if it doesn't exist
-            if !fileManager.fileExists(atPath: transcriptsPath.path) {
-                print("🔍 DEBUG: Fallback transcripts directory doesn't exist, creating...")
-                do {
-                    try fileManager.createDirectory(at: transcriptsPath, withIntermediateDirectories: true, attributes: nil)
-                    print("📁 Created fallback transcripts directory at: \(transcriptsPath.path)")
-                } catch {
-                    print("⚠️ Failed to create fallback directory at \(locationName): \(error.localizedDescription)")
-                    continue
-                }
-            } else {
-                print("📁 Using existing fallback transcripts directory at: \(transcriptsPath.path)")
-            }
-            
-            // Verify we can write to this directory
-            let testFile = transcriptsPath.appendingPathComponent(".fallback_test")
-            print("🔍 DEBUG: Testing fallback write access: \(testFile.path)")
-            
-            do {
-                try "test".write(to: testFile, atomically: true, encoding: .utf8)
-                print("🔍 DEBUG: Fallback write test successful")
-                try fileManager.removeItem(at: testFile)
-                print("🔍 DEBUG: Fallback test file removed")
-                print("✅ Using fallback location: \(locationName)")
-                return transcriptsPath
-            } catch {
-                print("⚠️ Cannot write to fallback \(locationName): \(error.localizedDescription)")
-                continue
-            }
+        if !fileManager.fileExists(atPath: transcriptsDir.path) {
+            try fileManager.createDirectory(at: transcriptsDir, withIntermediateDirectories: true, attributes: nil)
         }
-        
-        // Last resort: app's Documents directory
-        print("❌ All locations failed, using app's Documents directory as last resort")
-        let appDocumentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let lastResortPath = appDocumentsPath.appendingPathComponent(transcriptsDirectory)
-        
-        if !fileManager.fileExists(atPath: lastResortPath.path) {
-            try fileManager.createDirectory(at: lastResortPath, withIntermediateDirectories: true, attributes: nil)
-            print("📁 Created last resort transcripts directory at: \(lastResortPath.path)")
-        }
-        
-        return lastResortPath
+        return transcriptsDir
     }
     
     // MARK: - Real User Directory Access
@@ -858,6 +765,42 @@ extension SessionTranscriptStore {
         }
         
         return true
+    }
+}
+
+// MARK: - DeepgramSTTDelegate Implementation
+extension SessionTranscriptStore {
+    nonisolated func didReceiveTranscription(_ text: String, isFinal: Bool, confidence: Float) {
+        print("📝 DeepgramSTT: Received transcription: '\(text)' (final: \(isFinal), confidence: \(confidence))")
+        
+        // Add to transcript segments
+        Task { @MainActor in
+            // Only process actual speech content
+            guard self.isActualSpeechContent(text) else {
+                print("🔇 Skipping non-speech content: '\(text)'")
+                return
+            }
+            
+            self.addTranscriptSegment(text: text, confidence: confidence, source: .server)
+            
+            if isFinal {
+                print("✅ Added final Deepgram segment: '\(text)'")
+            } else {
+                print("🔄 Added interim Deepgram segment: '\(text)'")
+            }
+        }
+    }
+    
+    nonisolated func didReceiveError(_ error: Error) {
+        print("❌ DeepgramSTT error: \(error)")
+    }
+    
+    nonisolated func didConnect() {
+        print("✅ DeepgramSTT connected")
+    }
+    
+    nonisolated func didDisconnect() {
+        print("🔌 DeepgramSTT disconnected")
     }
 }
 

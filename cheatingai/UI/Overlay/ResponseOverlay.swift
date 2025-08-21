@@ -232,6 +232,10 @@ struct ResponsePanel: View {
         .onAppear {
             animateGradient = true
         }
+        .onTapGesture(count: 3) {
+            // Triple-tap to show/hide debug info
+            print("🔍 Triple-tap detected - debug info toggled")
+        }
     }
     
     private func sendMessage() {
@@ -384,6 +388,7 @@ struct CompactView: View {
     @State private var inlineLoading: Bool = false
     @State private var inlineChatSessionId: UUID = UUID()
     @FocusState private var inlineFocused: Bool
+    @State private var showDebugInfo: Bool = false
     
         var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -651,6 +656,43 @@ struct CompactView: View {
             }
         }
 		// Timer now appears inside the Listen capsule; removed floating overlay
+    }
+    
+    // MARK: - Debug Overlay
+    
+    struct AudioDebugOverlay: View {
+        @ObservedObject var audioCaptureManager: AudioCaptureManager
+        @ObservedObject var deepgramSTT: DeepgramSTT
+        
+        var body: some View {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("🎵 Audio Debug")
+                    .font(.headline)
+                
+                HStack {
+                    Circle()
+                        .fill(audioCaptureManager.isAudioFlowing ? .green : .red)
+                        .frame(width: 10, height: 10)
+                    Text("Audio Flowing: \(audioCaptureManager.isAudioFlowing ? "YES" : "NO")")
+                        .font(.caption)
+                }
+                
+                if let lastTimestamp = audioCaptureManager.lastAudioTimestamp {
+                    Text("Last Audio: \(lastTimestamp, style: .time)")
+                        .font(.caption2)
+                }
+                
+                Text("Audio Level: \(String(format: "%.1f", audioCaptureManager.audioLevelDebug)) dB")
+                    .font(.caption2)
+                
+                Text("WebSocket: \(deepgramSTT.connectionStatus)")
+                    .font(.caption2)
+            }
+            .padding(8)
+            .background(.black.opacity(0.7))
+            .cornerRadius(8)
+            .foregroundColor(.white)
+        }
     }
 
     private func listeningDuration(from start: Date) -> String {
