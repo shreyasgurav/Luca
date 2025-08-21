@@ -3,6 +3,7 @@ const path = require('path');
 const url = require('url');
 const Busboy = require('busboy');
 const WebSocket = require('ws');
+const { callOpenAI } = require('../lib/openaiClient');
 
 // WebSocket server for real-time audio streaming
 let wss = null;
@@ -344,6 +345,36 @@ async function handleQuery(req, res) {
   return sendJSON(res, 200, { answer, citations: [] });
 }
 
+// NEW: suggestion endpoint using gpt-4o-mini top-up
+async function handleSuggest(req, res) {
+  try {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let body = {};
+    try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch {}
+    const windowText = (body.window || '').toString();
+    if (!windowText || windowText.length < 40) {
+      return sendJSON(res, 200, { verbatim: [], topics: [] });
+    }
+
+    const promptContext = `You extract short, clickable Q&A suggestions from a meeting transcript.\n` +
+      `Return compact strings (<=80 chars). Prefer exact questions from the transcript; also add 1–2 generic topic prompts if helpful.\n` +
+      `Transcript window:\n${windowText}\n\n` +
+      `Return JSON with keys "verbatim" (exact questions) and "topics" (generic prompts). At most 3 verbatim and 2 topics.`;
+
+    const openaiResp = await callOpenAI({ promptContext });
+    let parsed = { verbatim: [], topics: [] };
+    try {
+      const txt = openaiResp?.choices?.[0]?.message?.content || '{}';
+      parsed = JSON.parse(txt);
+    } catch {}
+    return sendJSON(res, 200, parsed);
+  } catch (e) {
+    console.error('suggest error', e);
+    return sendJSON(res, 200, { verbatim: [], topics: [] });
+  }
+}
+
 // ✅ FIX: Add server-side deduplication for repetitive content
 function deduplicateServerTranscript(transcript, session) {
   if (!transcript || !transcript.trim()) {
@@ -530,6 +561,7 @@ module.exports = async function handler(req, res) {
   if (pathname === '/api/listen/chunk' && req.method === 'POST') return handleChunk(req, res);
   if (pathname === '/api/listen/stop' && req.method === 'POST') return handleStop(req, res);
   if (pathname === '/api/listen/query' && req.method === 'POST') return handleQuery(req, res);
+  if (pathname === '/api/listen/suggest' && req.method === 'POST') return handleSuggest(req, res);
   res.statusCode = 404; res.end('Not found');
 };
 

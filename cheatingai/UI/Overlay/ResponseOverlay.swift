@@ -369,6 +369,7 @@ struct ResponsePanel: View {
         if t.contains("gym") { return "gym" }
         return text
     }
+    
 }
 
 struct CompactView: View {
@@ -389,6 +390,7 @@ struct CompactView: View {
     @State private var inlineChatSessionId: UUID = UUID()
     @FocusState private var inlineFocused: Bool
     @State private var showDebugInfo: Bool = false
+    @StateObject private var suggEngine = SuggestedQuestionsEngine.shared
     
         var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -548,6 +550,45 @@ struct CompactView: View {
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+        
+        // Suggestions strip
+        if !suggEngine.suggestions.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Suggestions")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(suggEngine.suggestions) { s in
+                            Button(action: { inlineInput = s.text; showInlineChat = true; inlineSend() }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: s.source == .verbatim ? "quote.bubble" : (s.source == .topic ? "lightbulb" : "sparkles"))
+                                        .font(.system(size: 12, weight: .medium))
+                                    Text(s.text)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .lineLimit(1)
+                                    if s.source != .verbatim {
+                                        Text(s.source == .topic ? "topic" : "LLM")
+                                            .font(.system(size: 10))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.black.opacity(0.08))
+                                            .cornerRadius(8)
+                                    }
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Capsule())
+                                .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
         }
         
 		if !inlineConversation.isEmpty || inlineLoading || showInlineChat {
@@ -939,6 +980,12 @@ struct CompactView: View {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { showInlineChat = false }
         let frame = ResponseOverlay.shared.panel?.frame ?? .zero
         ResponseOverlay.shared.panel?.setFrame(CGRect(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: 120), display: true, animate: true)
+    }
+
+    private func askSuggestion(_ q: String) {
+        inlineInput = q
+        showInlineChat = true
+        inlineSend()
     }
 }
 

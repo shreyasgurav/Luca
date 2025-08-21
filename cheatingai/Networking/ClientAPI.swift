@@ -235,6 +235,26 @@ final class ClientAPI {
         }.resume()
     }
     
+    struct SuggestResponse: Decodable { let verbatim: [String]; let topics: [String] }
+    
+    func listenSuggest(window: String, completion: @escaping (Result<SuggestResponse, Error>) -> Void) {
+        let url = baseURL.appendingPathComponent("/api/listen/suggest")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["window": window])
+        URLSession.shared.dataTask(with: req) { data, _, err in
+            if let err = err { completion(.failure(err)); return }
+            guard let data = data else {
+                completion(.failure(NSError(domain: "ClientAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data"])))
+                return
+            }
+            do {
+                completion(.success(try JSONDecoder().decode(SuggestResponse.self, from: data)))
+            } catch { completion(.failure(error)) }
+        }.resume()
+    }
+    
     private func extractAndStoreMemories(userMessage: String, assistantResponse: String) async {
         // Use the server-side intelligent memory extraction
         await extractMemoriesFromServer(content: "\(userMessage)\n\nAssistant: \(assistantResponse)")

@@ -6,9 +6,21 @@ final class SessionTranscriptStore: DeepgramSTTDelegate {
     static let shared = SessionTranscriptStore()
     private init() {}
     
+    // MARK: - Live Publications
+    @Published var lastFinalUtterance: String?
+    
     // MARK: - Storage Properties
     private let fileManager = FileManager.default
     private let transcriptsDirectory = "SessionTranscripts"
+    private let customDirBookmarkKey = "SessionTranscriptsCustomDirBookmark"
+    private var customTranscriptsURL: URL? {
+        guard let data = UserDefaults.standard.data(forKey: customDirBookmarkKey) else { return nil }
+        var isStale = false
+        if let url = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &isStale) {
+            return url
+        }
+        return nil
+    }
     
     // MARK: - Session Transcript Management
     private var currentSessionTranscript: SessionTranscript?
@@ -253,7 +265,7 @@ final class SessionTranscriptStore: DeepgramSTTDelegate {
         print("🔍 DEBUG: saveSessionTranscript called for session: \(session.sessionId)")
         print("🔍 DEBUG: Session has \(session.segments.count) segments")
         
-        let transcriptsDir = try getTranscriptsDirectory()
+        let transcriptsDir = try getTranscriptsDirectoryWithOverride()
         print("🔍 DEBUG: Transcripts directory: \(transcriptsDir.path)")
         
         let fileURL = transcriptsDir.appendingPathComponent(session.fileName)
@@ -288,7 +300,7 @@ final class SessionTranscriptStore: DeepgramSTTDelegate {
         guard let session = currentSessionTranscript else { return }
         
         do {
-            let transcriptsDir = try getTranscriptsDirectory()
+            let transcriptsDir = try getTranscriptsDirectoryWithOverride()
             let tempFileName = "temp_\(session.fileName)"
             let tempFileURL = transcriptsDir.appendingPathComponent(tempFileName)
             
@@ -380,7 +392,7 @@ final class SessionTranscriptStore: DeepgramSTTDelegate {
     
     // MARK: - Public Interface for Integration
     func getAllTranscripts() throws -> [URL] {
-        let transcriptsDir = try getTranscriptsDirectory()
+        let transcriptsDir = try getTranscriptsDirectoryWithOverride()
         return try fileManager.contentsOfDirectory(at: transcriptsDir, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "txt" && $0.lastPathComponent.hasPrefix("transcript_") }
             .sorted { $0.lastPathComponent > $1.lastPathComponent } // Most recent first
@@ -400,7 +412,7 @@ final class SessionTranscriptStore: DeepgramSTTDelegate {
         }
         
         do {
-            let targetDir = try getTranscriptsDirectory()
+            let targetDir = try getTranscriptsDirectoryWithOverride()
             let existingFiles = try fileManager.contentsOfDirectory(at: sandboxTranscriptsPath, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "txt" }
             
@@ -440,7 +452,7 @@ final class SessionTranscriptStore: DeepgramSTTDelegate {
     
     func getCurrentSaveLocation() -> String {
         do {
-            let transcriptsDir = try getTranscriptsDirectory()
+            let transcriptsDir = try getTranscriptsDirectoryWithOverride()
             return transcriptsDir.path
         } catch {
             return "Error: \(error.localizedDescription)"
@@ -785,10 +797,42 @@ extension SessionTranscriptStore {
             
             if isFinal {
                 print("✅ Added final Deepgram segment: '\(text)'")
+                self.lastFinalUtterance = text
             } else {
                 print("🔄 Added interim Deepgram segment: '\(text)'")
             }
         }
+    }
+
+    // MARK: - Directory Selection
+    func chooseTranscriptsDirectory(completion: @escaping (Bool) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select"
+        panel.message = "Choose a folder to save session transcripts"
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { completion(false); return }
+            guard let bookmark = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) else {
+                completion(false); return
+            }
+            UserDefaults.standard.set(bookmark, forKey: self?.customDirBookmarkKey ?? "")
+            completion(true)
+        }
+    }
+
+    private func getTranscriptsDirectoryWithOverride() throws -> URL {
+        if let customURL = customTranscriptsURL {
+            if customURL.startAccessingSecurityScopedResource() {
+                defer { customURL.stopAccessingSecurityScopedResource() }
+                if !fileManager.fileExists(atPath: customURL.path) {
+                    try fileManager.createDirectory(at: customURL, withIntermediateDirectories: true, attributes: nil)
+                }
+                return customURL
+            }
+        }
+        return try getTranscriptsDirectory()
     }
     
     nonisolated func didReceiveError(_ error: Error) {
