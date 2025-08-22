@@ -1,0 +1,4 @@
+module abslWrapper {
+umbrella "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/abseil-cpp-binary/absl-Wrapper/include"
+export *
+}

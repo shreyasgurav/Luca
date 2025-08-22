@@ -1,0 +1,4 @@
+module leveldb {
+umbrella "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/leveldb/include"
+export *
+}

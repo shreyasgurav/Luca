@@ -44,9 +44,6 @@ struct SessionDetailView: View {
                         .clipShape(Capsule())
                 }.buttonStyle(.plain)
                 Spacer()
-                // Stubs for upcoming features
-                Button("Ask follow‑up") { /* TODO: wire to conversation */ }
-                Button("Re‑summarize") { /* TODO: trigger SummaryManager on this file */ }
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
@@ -97,6 +94,7 @@ struct SessionDetailView: View {
 #Preview {
     SessionDetailView(session: SessionTranscriptStore.TranscriptSession(
         id: "transcript_2025-08-19_12-00-00_ABCDEFGH",
+        title: "WTF Fund and YC effectiveness",
         createdAt: Date(),
         sizeBytes: 1024,
         preview: "Preview",

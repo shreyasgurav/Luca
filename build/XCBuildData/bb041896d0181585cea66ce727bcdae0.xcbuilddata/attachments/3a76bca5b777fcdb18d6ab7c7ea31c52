@@ -1,0 +1,4 @@
+module opensslWrapper {
+umbrella "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/grpc-binary/openssl-grpc-Wrapper/include"
+export *
+}

@@ -1,0 +1,4 @@
+module nanopb {
+umbrella "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/nanopb/spm_headers"
+export *
+}

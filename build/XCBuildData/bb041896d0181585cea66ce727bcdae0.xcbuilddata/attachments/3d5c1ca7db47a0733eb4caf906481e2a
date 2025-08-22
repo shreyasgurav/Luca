@@ -1,0 +1,40 @@
+{
+  "" : {
+    "const-values" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInSwift-master.swiftconstvalues",
+    "dependencies" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInSwift-master.d",
+    "diagnostics" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInSwift-master.dia",
+    "emit-module-dependencies" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInSwift-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInSwift-master-emit-module.dia",
+    "swift-dependencies" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInSwift-master.swiftdeps"
+  },
+  "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/GoogleSignInSwift/Sources/GoogleSignInButton.swift" : {
+    "index-unit-output-path" : "/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButton.o",
+    "llvm-bc" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButton.bc",
+    "object" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButton.o"
+  },
+  "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/GoogleSignInSwift/Sources/GoogleSignInButtonBundleExtensions.swift" : {
+    "index-unit-output-path" : "/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonBundleExtensions.o",
+    "llvm-bc" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonBundleExtensions.bc",
+    "object" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonBundleExtensions.o"
+  },
+  "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/GoogleSignInSwift/Sources/GoogleSignInButtonStrings.swift" : {
+    "index-unit-output-path" : "/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonStrings.o",
+    "llvm-bc" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonStrings.bc",
+    "object" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonStrings.o"
+  },
+  "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/GoogleSignInSwift/Sources/GoogleSignInButtonStyling.swift" : {
+    "index-unit-output-path" : "/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonStyling.o",
+    "llvm-bc" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonStyling.bc",
+    "object" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonStyling.o"
+  },
+  "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/GoogleSignInSwift/Sources/GoogleSignInButtonViewModel.swift" : {
+    "index-unit-output-path" : "/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonViewModel.o",
+    "llvm-bc" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonViewModel.bc",
+    "object" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/GoogleSignInButtonViewModel.o"
+  },
+  "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/DerivedSources/resource_bundle_accessor.swift" : {
+    "index-unit-output-path" : "/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/resource_bundle_accessor.o",
+    "llvm-bc" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/resource_bundle_accessor.bc",
+    "object" : "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/GoogleSignIn-iOS/build/GoogleSignIn.build/Release/GoogleSignInSwift.build/Objects-normal/arm64/resource_bundle_accessor.o"
+  }
+}

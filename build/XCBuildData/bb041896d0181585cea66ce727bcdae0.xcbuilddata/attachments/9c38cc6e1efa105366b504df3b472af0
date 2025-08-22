@@ -1,0 +1,25 @@
+{
+  "" : {
+    "const-values" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/cheatingaiTests-master.swiftconstvalues",
+    "dependencies" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/cheatingaiTests-master.d",
+    "diagnostics" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/cheatingaiTests-master.dia",
+    "emit-module-dependencies" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/cheatingaiTests-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/cheatingaiTests-master-emit-module.dia",
+    "swift-dependencies" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/cheatingaiTests-master.swiftdeps"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingaiTests/ScaleConverterTests.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/ScaleConverterTests.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/ScaleConverterTests.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/ScaleConverterTests.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingaiTests/SuggestedQuestionsEngineTests.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/SuggestedQuestionsEngineTests.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/SuggestedQuestionsEngineTests.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/SuggestedQuestionsEngineTests.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingaiTests/cheatingaiTests.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/cheatingaiTests.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/cheatingaiTests.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingaiTests.build/Objects-normal/x86_64/cheatingaiTests.o"
+  }
+}

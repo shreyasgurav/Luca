@@ -852,6 +852,7 @@ extension SessionTranscriptStore {
 extension SessionTranscriptStore: ObservableObject {
     struct TranscriptSession: Identifiable {
         let id: String
+        let title: String
         let createdAt: Date
         let sizeBytes: Int
         let preview: String
@@ -868,15 +869,80 @@ extension SessionTranscriptStore: ObservableObject {
                     return nil
                 }
                 
-                let preview = try? String(contentsOf: url, encoding: .utf8)
+                let fullText = try? String(contentsOf: url, encoding: .utf8)
+                let preview = fullText?
                     .components(separatedBy: .newlines)
                     .prefix(3)
                     .joined(separator: " ")
                     .prefix(100)
                     .description
+
+                // Derive a friendly title from the SUMMARY section (concise phrase, not full sentence)
+                let computedTitle: String = {
+                    guard let text = fullText else {
+                        return url.deletingPathExtension().lastPathComponent
+                    }
+                    let lines = text.components(separatedBy: .newlines)
+                    // Locate SUMMARY header
+                    guard let summaryIdx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces).uppercased() == "SUMMARY" }) else {
+                        // Fallback: friendly date-based title
+                        let df = DateFormatter()
+                        df.dateFormat = "MMM d, h:mm a"
+                        return "Session " + df.string(from: creationDate)
+                    }
+                    // Capture lines after SUMMARY until a blank line or TRANSCRIPT header
+                    let tail = lines.dropFirst(summaryIdx + 1)
+                    var summaryLines: [String] = []
+                    for line in tail {
+                        let trimmed = line.trimmingCharacters(in: .whitespaces)
+                        if trimmed.isEmpty { break }
+                        if trimmed.uppercased().hasPrefix("TRANSCRIPT") { break }
+                        summaryLines.append(trimmed)
+                    }
+                    let summaryText = summaryLines.joined(separator: " ")
+                    guard !summaryText.isEmpty else {
+                        let df = DateFormatter()
+                        df.dateFormat = "MMM d, h:mm a"
+                        return "Session " + df.string(from: creationDate)
+                    }
+                    // Build a short title phrase
+                    var base = summaryText
+                    // Use text after a colon if present (often more specific)
+                    if let colonIdx = base.firstIndex(of: ":") {
+                        let after = base.index(after: colonIdx)
+                        base = String(base[after...]).trimmingCharacters(in: .whitespaces)
+                    }
+                    // Strip common lead-ins
+                    let leadIns = [
+                        "the session discusses", "the session discussed", "the session was about",
+                        "this session discusses", "this session discussed", "this session was about",
+                        "discussion about", "discussing", "discussed", "exploring", "explores",
+                        "overview of", "establishment of", "introduction to", "a look at"
+                    ]
+                    let lower = base.lowercased()
+                    if let match = leadIns.first(where: { lower.hasPrefix($0) }) {
+                        base = String(base.dropFirst(match.count)).trimmingCharacters(in: .whitespaces)
+                    }
+                    // Remove leading bullets or dashes and "summary" label
+                    base = base.replacingOccurrences(of: "- ", with: "")
+                    base = base.replacingOccurrences(of: "summary:", with: "", options: .caseInsensitive)
+                    base = base.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Take first clause before sentence ender
+                    if let endRange = base.rangeOfCharacter(from: CharacterSet(charactersIn: ".!?")) {
+                        base = String(base[..<endRange.lowerBound])
+                    }
+                    // Limit to ~8 words
+                    let words = base.split(separator: " ").map(String.init)
+                    let limited = words.prefix(8).joined(separator: " ")
+                    // Title case basic
+                    let titleCased = limited.capitalized
+                    let finalTitle = titleCased.isEmpty ? "Session" : titleCased
+                    return finalTitle
+                }()
                 
                 return TranscriptSession(
                     id: url.lastPathComponent.replacingOccurrences(of: ".txt", with: ""),
+                    title: computedTitle,
                     createdAt: creationDate,
                     sizeBytes: fileSize,
                     preview: preview ?? "No preview available",

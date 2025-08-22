@@ -485,12 +485,26 @@ struct DashboardView: View {
                     .font(.title2)
                     .fontWeight(.bold)
                 Spacer()
-                Button("Refresh") { Task { await sessionsStore.loadSessions() } }
+                if showingSessionDetail {
+                    Button("← Back to Sessions") {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showingSessionDetail = false
+                            selectedSession = nil
+                        }
+                    }
+                } else {
+                    Button("Refresh") { Task { await sessionsStore.loadSessions() } }
+                }
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
 
-            if sessionsStore.sessions.isEmpty {
+            if showingSessionDetail, let session = selectedSession {
+                // Show session details inline
+                SessionDetailView(session: session)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            } else if sessionsStore.sessions.isEmpty {
                 VStack(spacing: 12) {
                     Spacer()
                     Image(systemName: "text.alignleft")
@@ -503,42 +517,41 @@ struct DashboardView: View {
             } else {
                 List {
                     ForEach(sessionsStore.sessions) { s in
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "doc.text")
-                                .foregroundColor(.secondary)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(s.id)
+                        VStack(alignment: .leading, spacing: 8) {
+                            // Top row: Session title and action buttons
+                            HStack {
+                                Text(s.title)
                                     .font(.headline)
                                     .lineLimit(1)
-                                Text("\(s.createdAt.formatted(.dateTime.day().month().hour().minute())) • \(ByteCountFormatter.string(fromByteCount: Int64(s.sizeBytes), countStyle: .file))")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text(s.preview)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(3)
-                                // Attempt to derive summary from file content
-                                if let fileText = try? String(contentsOf: s.fileURL, encoding: .utf8) {
-                                    let lines = fileText.components(separatedBy: "\n")
-                                    if let summaryIndex = lines.firstIndex(where: { $0.contains("SUMMARY") }) {
-                                        let after = lines.dropFirst(summaryIndex + 1)
-                                        let summary = after.prefix(8).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                                        if !summary.isEmpty {
-                                            Text(summary)
-                                                .font(.caption)
-                                                .foregroundColor(.primary)
-                                                .lineLimit(4)
-                                        }
+                                Spacer()
+                                Button("Open") { openSession(s) }
+                                Button("Open in Finder") { sessionsStore.revealInFinder(s) }
+                                Button("Delete") { sessionsStore.delete(s) }
+                                    .foregroundColor(.red)
+                            }
+                            
+                            // Date and time
+                            Text("\(s.createdAt.formatted(.dateTime.day().month().hour().minute())) • \(ByteCountFormatter.string(fromByteCount: Int64(s.sizeBytes), countStyle: .file))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            // Summary (extracted from file content)
+                            if let fileText = try? String(contentsOf: s.fileURL, encoding: .utf8) {
+                                let lines = fileText.components(separatedBy: "\n")
+                                if let summaryIndex = lines.firstIndex(where: { $0.contains("SUMMARY") }) {
+                                    let after = lines.dropFirst(summaryIndex + 1)
+                                    let summary = after.prefix(8).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if !summary.isEmpty {
+                                        Text(summary)
+                                            .font(.caption)
+                                            .foregroundColor(.primary)
+                                            .lineLimit(4)
                                     }
                                 }
                             }
-                            Spacer()
-                            Button("Open") { openSession(s) }
-                            Button("Open in Finder") { sessionsStore.revealInFinder(s) }
-                            Button("Delete") { sessionsStore.delete(s) }
-                                .foregroundColor(.red)
                         }
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 4)
                     }
                 }
                 .listStyle(.plain)
@@ -550,9 +563,10 @@ struct DashboardView: View {
     @State private var selectedSession: SessionTranscriptStore.TranscriptSession?
 
     private func openSession(_ s: SessionTranscriptStore.TranscriptSession) {
-        selectedSession = s
-        let detail = SessionDetailWindow(session: s)
-        detail.show()
+        withAnimation(.easeInOut(duration: 0.3)) {
+            selectedSession = s
+            showingSessionDetail = true
+        }
     }
     
     private var profileHeaderView: some View {

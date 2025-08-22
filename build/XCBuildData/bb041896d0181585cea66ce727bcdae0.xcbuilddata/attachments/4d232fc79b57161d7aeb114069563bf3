@@ -1,0 +1,4 @@
+module AppAuthCore {
+umbrella "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/AppAuth-iOS/Sources/AppAuthCore"
+export *
+}

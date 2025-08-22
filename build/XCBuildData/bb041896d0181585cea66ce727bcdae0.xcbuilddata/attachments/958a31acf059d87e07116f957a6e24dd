@@ -1,0 +1,4 @@
+module grpcWrapper {
+umbrella "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/grpc-binary/grpc-Wrapper/include"
+export *
+}

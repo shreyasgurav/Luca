@@ -1,0 +1,4 @@
+module FirebaseCoreExtension {
+umbrella "/Users/shreyasgurav/Library/Developer/Xcode/DerivedData/cheatingai-clferzrklhkdfvdjkrvvdwgjeszv/SourcePackages/checkouts/firebase-ios-sdk/FirebaseCore/Extension"
+export *
+}

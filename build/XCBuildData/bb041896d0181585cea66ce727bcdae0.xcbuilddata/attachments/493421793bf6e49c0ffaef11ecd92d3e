@@ -1,0 +1,215 @@
+{
+  "" : {
+    "const-values" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/cheatingai-master.swiftconstvalues",
+    "dependencies" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/cheatingai-master.d",
+    "diagnostics" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/cheatingai-master.dia",
+    "emit-module-dependencies" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/cheatingai-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/cheatingai-master-emit-module.dia",
+    "swift-dependencies" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/cheatingai-master.swiftdeps"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/GeneratedAssetSymbols.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Audio/AudioCaptureManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AudioCaptureManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AudioCaptureManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AudioCaptureManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Audio/DeepgramSTT.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/DeepgramSTT.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/DeepgramSTT.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/DeepgramSTT.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Audio/SpeechTranscriber.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SpeechTranscriber.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SpeechTranscriber.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SpeechTranscriber.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Auth/AuthenticationManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AuthenticationManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AuthenticationManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AuthenticationManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Capture/CaptureManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/CaptureManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/CaptureManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/CaptureManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Capture/OCRManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/OCRManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/OCRManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/OCRManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Capture/ScreenOCRManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ScreenOCRManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ScreenOCRManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ScreenOCRManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Capture/ScreenshotManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ScreenshotManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ScreenshotManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ScreenshotManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Capture/SelectionController.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SelectionController.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SelectionController.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SelectionController.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Intent/IntentRouter.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/IntentRouter.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/IntentRouter.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/IntentRouter.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Memory/VectorMemoryManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/VectorMemoryManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/VectorMemoryManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/VectorMemoryManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Networking/AnalyzeAPI.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AnalyzeAPI.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AnalyzeAPI.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AnalyzeAPI.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Networking/ChatAPI.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ChatAPI.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ChatAPI.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ChatAPI.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Networking/ClientAPI.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ClientAPI.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ClientAPI.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ClientAPI.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Networking/ListenAPI.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ListenAPI.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ListenAPI.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ListenAPI.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Networking/PlacesAPI.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/PlacesAPI.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/PlacesAPI.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/PlacesAPI.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Session/ConversationManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ConversationManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ConversationManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ConversationManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Session/SessionManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Session/SessionTranscriptStore.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionTranscriptStore.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionTranscriptStore.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionTranscriptStore.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Summary/SummaryManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SummaryManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SummaryManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SummaryManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/System/AppConfig.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AppConfig.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AppConfig.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AppConfig.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/System/DeepgramConfig.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/DeepgramConfig.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/DeepgramConfig.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/DeepgramConfig.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/System/FeatureFlags.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/FeatureFlags.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/FeatureFlags.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/FeatureFlags.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/System/GlobalHotKey.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/GlobalHotKey.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/GlobalHotKey.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/GlobalHotKey.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/System/LocationManager.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/LocationManager.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/LocationManager.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/LocationManager.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/App/AppDelegate.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AppDelegate.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AppDelegate.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/AppDelegate.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/App/cheatingaiApp.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/cheatingaiApp.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/cheatingaiApp.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/cheatingaiApp.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Components/MarkdownRenderer.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MarkdownRenderer.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MarkdownRenderer.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MarkdownRenderer.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Overlay/MainWindow.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MainWindow.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MainWindow.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MainWindow.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Overlay/ResponseOverlay.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ResponseOverlay.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ResponseOverlay.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ResponseOverlay.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Overlay/SelectionOverlayWindow.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SelectionOverlayWindow.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SelectionOverlayWindow.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SelectionOverlayWindow.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Views/ContentView.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ContentView.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Views/DashboardView.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/DashboardView.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/DashboardView.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/DashboardView.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Views/MainAppView.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MainAppView.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MainAppView.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MainAppView.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Views/MemoryManagementView.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MemoryManagementView.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MemoryManagementView.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/MemoryManagementView.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Views/SessionDetailView.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionDetailView.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionDetailView.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionDetailView.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Views/SessionDetailWindow.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionDetailWindow.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionDetailWindow.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SessionDetailWindow.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/UI/Views/VectorMemoryView.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/VectorMemoryView.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/VectorMemoryView.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/VectorMemoryView.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Utils/ScaleConverterTests.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ScaleConverterTests.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ScaleConverterTests.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/ScaleConverterTests.o"
+  },
+  "/Users/shreyasgurav/Desktop/cheatingai/cheatingai/Utils/SuggestedQuestionsEngine.swift" : {
+    "index-unit-output-path" : "/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SuggestedQuestionsEngine.o",
+    "llvm-bc" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SuggestedQuestionsEngine.bc",
+    "object" : "/Users/shreyasgurav/Desktop/cheatingai/build/cheatingai.build/Release/cheatingai.build/Objects-normal/arm64/SuggestedQuestionsEngine.o"
+  }
+}
