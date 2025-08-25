@@ -37,22 +37,9 @@
 		3DA416712E474607009D493F /* cheatingaiUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cheatingaiUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		3DC3F2062E48756900ADC644 /* Exceptions for "cheatingai" folder in "cheatingai" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = 3DA416582E474606009D493F /* cheatingai */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3DA4165B2E474606009D493F /* cheatingai */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				3DC3F2062E48756900ADC644 /* Exceptions for "cheatingai" folder in "cheatingai" target */,
-			);
 			path = cheatingai;
 			sourceTree = "<group>";
 		};

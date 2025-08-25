@@ -3,18 +3,40 @@ import SwiftUI
 import FirebaseAuth
 
 // Custom NSPanel subclass to handle text input properly
-class FocusablePanel: NSPanel {
-    override var canBecomeKey: Bool {
-        return true
+/// Non-activating floating panel that stays above apps
+final class FocusablePanel: NSPanel {
+    init(contentRect: NSRect, contentView: NSView) {
+        super.init(
+            contentRect: contentRect,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        self.contentView = contentView
+
+        isOpaque = false
+        hasShadow = true
+        backgroundColor = .clear
+        isMovableByWindowBackground = true
+
+        // Always float above apps + Spaces
+        level = .statusBar
+        collectionBehavior = [
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .stationary,
+            .ignoresCycle
+        ]
+
+        worksWhenModal = true
+        hidesOnDeactivate = false
+        acceptsMouseMovedEvents = true
+        ignoresMouseEvents = false
     }
-    
-    override var canBecomeMain: Bool {
-        return false
-    }
-    
-    override var acceptsFirstResponder: Bool {
-        return true
-    }
+
+    override var canBecomeKey: Bool { true }   // allow textfields/buttons
+    override var canBecomeMain: Bool { false } // don't make app active
+    override var acceptsFirstResponder: Bool { true }
 }
 
 struct ChatMessage {
@@ -43,16 +65,10 @@ final class ResponseOverlay {
                 return
             }
             
-            if panel == nil { createPanel() }
-            if let hosting = panel?.contentViewController as? NSHostingController<ResponsePanel> {
-                hosting.rootView = ResponsePanel(text: text)
-                hosting.view.needsDisplay = true
-            }
-            panel?.orderFrontRegardless()
-            panel?.center()
-            
-            // CRITICAL: Make panel key window for text input
-            panel?.makeKey()
+            let root = NSHostingView(rootView: ResponsePanel(text: text))
+            root.translatesAutoresizingMaskIntoConstraints = false
+            let size = CGSize(width: 600, height: 160)
+            ensurePanel(content: root, size: size)
         }
     }
     
@@ -64,18 +80,10 @@ final class ResponseOverlay {
                 return
             }
             
-            if panel == nil { createPanel() }
-            if let hosting = panel?.contentViewController as? NSHostingController<ResponsePanel> {
-                // Create a new ResponsePanel with expanded state
-                let expandedPanel = ResponsePanel(text: "", isExpanded: true)
-                hosting.rootView = expandedPanel
-                hosting.view.needsDisplay = true
-            }
-            panel?.orderFrontRegardless()
-            panel?.center()
-            
-            // CRITICAL: Make panel key window for text input
-            panel?.makeKey()
+            let root = NSHostingView(rootView: ResponsePanel(text: "", isExpanded: true))
+            root.translatesAutoresizingMaskIntoConstraints = false
+            let size = CGSize(width: 720, height: 420)
+            ensurePanel(content: root, size: size)
         }
     }
     
@@ -87,7 +95,7 @@ final class ResponseOverlay {
 
     private func createPanel() {
         let style: NSWindow.StyleMask = [.borderless]
-        let panel = FocusablePanel(contentRect: CGRect(x: 0, y: 0, width: 400, height: 120), styleMask: style, backing: .buffered, defer: false)
+        let panel = FocusablePanel(contentRect: CGRect(x: 0, y: 0, width: 400, height: 120), contentView: NSView())
         
         // Glass morphism window properties
         panel.level = .floating
@@ -121,7 +129,38 @@ final class ResponseOverlay {
         panel.contentViewController = vc
         self.panel = panel
     }
+    
+    // Ensure panel exists and show without activating
+    private func ensurePanel(content: NSView, size: CGSize) {
+        if let panel = self.panel {
+            var frame = panel.frame
+            frame.size = size
+            panel.setFrame(frame, display: true, animate: true)
+            panel.contentView = content
+            panel.orderFrontRegardless()
+            return
+        }
+
+        let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
+        let origin = CGPoint(x: screenFrame.midX - size.width/2, y: screenFrame.midY - size.height/2)
+        let frame = NSRect(origin: origin, size: size)
+
+        let panel = FocusablePanel(contentRect: frame, contentView: content)
+        panel.orderFrontRegardless()
+        self.panel = panel
+    }
+
+    // Resize panel height safely
+    private func resizePanel(height: CGFloat) {
+        guard let panel = self.panel else { return }
+        var frame = panel.frame
+        frame.size.height = height
+        panel.setFrame(frame, display: true, animate: true)
+        panel.orderFrontRegardless()
+    }
 }
+
+// Removed duplicate ResponsePanel struct
 
 struct ResponsePanel: View {
     var text: String
@@ -442,7 +481,7 @@ struct CompactView: View {
 				}
 				DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
 					inlineFocused = true
-					ResponseOverlay.shared.panel?.makeKey()
+					ResponseOverlay.shared.panel?.orderFrontRegardless()
 				}
 			}) {
 				HStack(spacing: 6) {
@@ -1096,9 +1135,9 @@ struct ExpandedChatView: View {
                             .allowsHitTesting(true)
                             .onTapGesture {
                                 isInputFocused = true
-                                // Force window to become key when text field is tapped
+                                // Note: Removed makeKey() to prevent app activation
                                 DispatchQueue.main.async {
-                                    ResponseOverlay.shared.panel?.makeKey()
+                                    ResponseOverlay.shared.panel?.orderFrontRegardless()
                                 }
                             }
                     }
@@ -1132,7 +1171,7 @@ struct ExpandedChatView: View {
         .onAppear {
             // Auto-focus the input when expanded view appears
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                ResponseOverlay.shared.panel?.makeKey()
+                ResponseOverlay.shared.panel?.orderFrontRegardless()
                 isInputFocused = true
             }
         }
@@ -1229,8 +1268,8 @@ extension ResponsePanel {
         // Trigger the ask question functionality directly
         // Since we can't easily access the CompactView, we'll use a different approach
         // We'll set a flag that the CompactView can check
-        // For now, let's just ensure the panel is visible and focused
-        ResponseOverlay.shared.panel?.makeKey()
+        // Note: Removed makeKey() to prevent app activation
+        ResponseOverlay.shared.panel?.orderFrontRegardless()
     }
 }
 
@@ -1249,7 +1288,7 @@ extension CompactView {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             inlineFocused = true
-            ResponseOverlay.shared.panel?.makeKey()
+            ResponseOverlay.shared.panel?.orderFrontRegardless()
         }
     }
     

@@ -11,6 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var globalHotKey: GlobalHotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Set app to accessory mode to prevent activation from floating overlay
+        NSApp.setActivationPolicy(.accessory)
+        
         // Initialize Firebase
         FirebaseApp.configure()
         
