@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var menu: NSMenu!
     private var selectionController: SelectionController?
-    private var globalHotKey: GlobalHotKey?
+    // REMOVED: private var globalHotKey: GlobalHotKey? (old single hotkey system)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set app to accessory mode to prevent activation from floating overlay
@@ -30,8 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AuthenticationManager.shared.restorePreviousSignIn()
         
         setupStatusItem()
-        setupGlobalHotKey()
-        setupCommandReturnListener()
+        setupProductionHotKeys() // NEW: Updated hotkey system
+        // REMOVED: setupCommandReturnListener() (old local event monitor)
 
         // Pre-warm selection controller
         selectionController = SelectionController()
@@ -45,20 +45,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             
             // Test write access to help debug transcript saving
             let writeAccess = SessionTranscriptStore.shared.testWriteAccess()
-            print("🔍 DEBUG: Write access test result: \(writeAccess ? "SUCCESS" : "FAILED")")
-            print("🔍 DEBUG: Current save location: \(SessionTranscriptStore.shared.getCurrentSaveLocation())")
+            print("📁 DEBUG: Write access test result: \(writeAccess ? "SUCCESS" : "FAILED")")
+            print("📁 DEBUG: Current save location: \(SessionTranscriptStore.shared.getCurrentSaveLocation())")
             
             // Force test user's Documents folder
             let forceResult = SessionTranscriptStore.shared.forceUseUserDocuments()
-            print("🔍 DEBUG: Force user Documents test: \(forceResult)")
+            print("📁 DEBUG: Force user Documents test: \(forceResult)")
             
             // Check app permissions
             let permissions = SessionTranscriptStore.shared.checkAppPermissions()
-            print("🔍 DEBUG: App permissions:\n\(permissions)")
+            print("📁 DEBUG: App permissions:\n\(permissions)")
             
             // Test real user directory access methods
             let realDirTest = SessionTranscriptStore.shared.testRealUserDirectoryAccess()
-            print("🔍 DEBUG: Real directory access test:\n\(realDirTest)")
+            print("📁 DEBUG: Real directory access test:\n\(realDirTest)")
         }
 
         // Let AuthenticationManager handle all UI state changes
@@ -66,7 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        globalHotKey?.unregister()
+        // NEW: Clean up all hotkeys using the manager
+        GlobalHotKeyManager.shared.unregisterAll()
         
         // Force cleanup audio capture and screen recording
         AudioCaptureManager.shared.forceCleanup()
@@ -75,13 +76,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-                    // Use Nova logo instead of system icon
-        if let novaLogo = NSImage(named: "NovaLogo") {
-            novaLogo.size = NSSize(width: 18, height: 18)
-            button.image = novaLogo
-        } else {
-            button.image = NSImage(systemSymbolName: "rectangle.dashed", accessibilityDescription: "Nova")
-        }
+            // Use Nova logo instead of system icon
+            if let novaLogo = NSImage(named: "NovaLogo") {
+                novaLogo.size = NSSize(width: 18, height: 18)
+                button.image = novaLogo
+            } else {
+                button.image = NSImage(systemSymbolName: "rectangle.dashed", accessibilityDescription: "Nova")
+            }
             button.imagePosition = .imageOnly
             button.target = self
             button.action = #selector(toggleSelection)
@@ -96,105 +97,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
     }
 
-    private func setupGlobalHotKey() {
-        globalHotKey = GlobalHotKey(keyCode: UInt32(kVK_ANSI_Backslash), modifiers: [.command]) { [weak self] in
+    // NEW: Production hotkey setup using the enhanced system
+    private func setupProductionHotKeys() {
+        // Command+\ - Toggle overlay (existing functionality)
+        GlobalHotKeyManager.shared.registerHotKey(
+            keyCode: UInt32(kVK_ANSI_Backslash),
+            modifiers: [.command]
+        ) { [weak self] in
+            print("🔄 Command+\\ detected - toggling overlay")
             self?.toggleResponseOverlay()
         }
-        globalHotKey?.register()
+        
+        // Command+Return - Ask question (NEW)
+        GlobalHotKeyManager.shared.registerHotKey(
+            keyCode: UInt32(kVK_Return),
+            modifiers: [.command]
+        ) { [weak self] in
+            print("🔥 Command+Return detected - triggering ask question")
+            self?.handleAskQuestionHotkey()
+        }
+        
+        // Command+Delete - Clear chat (NEW)
+        GlobalHotKeyManager.shared.registerHotKey(
+            keyCode: UInt32(kVK_Delete),
+            modifiers: [.command]
+        ) { [weak self] in
+            print("🗑️ Command+Delete detected - clearing chat")
+            self?.handleClearChatHotkey()
+        }
+        
+        print("🚀 Production hotkey system initialized")
+        
+        // Print diagnostics in debug builds
+        #if DEBUG
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            GlobalHotKeyManager.shared.printDiagnostics()
+        }
+        #endif
     }
     
-    private func setupCommandReturnListener() {
-        // Listen for Command+Return and Command+Delete anywhere in the app
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.modifierFlags.contains(.command) {
-                switch event.keyCode {
-                case 36: // Return key
-                    self?.triggerAskQuestion()
-                    return nil
-                case 51: // Delete key
-                    self?.triggerClearChat()
-                    return nil
-                default:
-                    break
+    // NEW: Handle Command+Return hotkey
+    private func handleAskQuestionHotkey() {
+        DispatchQueue.main.async { [weak self] in
+            // If panel is not visible, show it first
+            if ResponseOverlay.shared.panel == nil || !ResponseOverlay.shared.panel!.isVisible {
+                print("   Panel not visible, showing first...")
+                ResponseOverlay.shared.show()
+                
+                // Wait for panel to be created and visible
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self?.triggerAskQuestionInPanel()
                 }
+            } else {
+                print("   Panel already visible, triggering immediately...")
+                self?.triggerAskQuestionInPanel()
             }
-            return event
-        }
-        
-        // Set up global notification listeners that are always active
-        NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("TriggerAskQuestion"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleAskQuestionNotification()
-        }
-        
-        NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("TriggerClearChat"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleClearChatNotification()
         }
     }
     
-    private func triggerAskQuestion() {
-        // Post a notification that the ask question button should be triggered
-        NotificationCenter.default.post(name: NSNotification.Name("TriggerAskQuestion"), object: nil)
-    }
-    
-    private func triggerClearChat() {
-        // Post a notification that the clear chat button should be triggered
-        NotificationCenter.default.post(name: NSNotification.Name("TriggerClearChat"), object: nil)
-    }
-    
-    private func handleAskQuestionNotification() {
-        // If panel not shown, show it first
-        if ResponseOverlay.shared.panel == nil || !ResponseOverlay.shared.panel!.isVisible {
-            ResponseOverlay.shared.show()
+    // NEW: Handle Command+Delete hotkey
+    private func handleClearChatHotkey() {
+        DispatchQueue.main.async {
+            // Only proceed if panel is visible
+            guard let panel = ResponseOverlay.shared.panel, panel.isVisible else {
+                print("   Panel not visible, ignoring clear chat")
+                return
+            }
             
-            // Wait a bit for the panel to be created and visible, then trigger ask question
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.triggerAskQuestionInPanel()
-            }
-        } else {
-            // Panel is already visible, trigger ask question immediately
-            triggerAskQuestionInPanel()
+            print("   Posting clear chat notification...")
+            NotificationCenter.default.post(name: NSNotification.Name("ExecuteClearChat"), object: nil)
         }
     }
     
+    // NEW: Helper method to trigger ask question in panel
     private func triggerAskQuestionInPanel() {
-        // Find the CompactView and trigger ask question
-        if let panel = ResponseOverlay.shared.panel,
-           let hostingController = panel.contentViewController as? NSHostingController<ResponsePanel> {
+        if let panel = ResponseOverlay.shared.panel {
+            panel.orderFrontRegardless()
             
-            // Access the CompactView through the hosting controller
-            // We need to find a way to trigger the ask question functionality
-            // For now, let's just ensure the panel is focused
-            panel.makeKey()
-            
-            // Post another notification that the view should listen for
+            print("   Posting ask question notification...")
             NotificationCenter.default.post(name: NSNotification.Name("ExecuteAskQuestion"), object: nil)
         }
     }
-    
-    private func handleClearChatNotification() {
-        // If panel not shown, nothing to clear
-        guard ResponseOverlay.shared.panel != nil && ResponseOverlay.shared.panel!.isVisible else {
-            return
-        }
-        
-        // Post notification to execute clear chat
-        NotificationCenter.default.post(name: NSNotification.Name("ExecuteClearChat"), object: nil)
-    }
-    
-    private func setupToggleOverlayHotKey() {
-        // This is now redundant since globalHotKey handles Command+\
-        // Keeping for backward compatibility but not registering
-    }
-    
-    // Command+Return hotkey removed as requested
+
+    // REMOVED: Old setupGlobalHotKey() method
+    // REMOVED: Old setupCommandReturnListener() method
+    // REMOVED: Old triggerAskQuestion() and triggerClearChat() methods
+    // REMOVED: Old handleAskQuestionNotification() and handleClearChatNotification() methods
 
     @objc private func toggleSelection() {
         // Directly show the response overlay
@@ -215,8 +203,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ResponseOverlay.shared.show()
         }
     }
-    
-
 
     @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor?, replyEvent: NSAppleEventDescriptor?) {
         if let urlString = event?.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
@@ -252,5 +238,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 }
-
-

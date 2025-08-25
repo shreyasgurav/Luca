@@ -717,6 +717,8 @@ struct CompactView: View {
         }
         .onAppear {
             pulseScale = 1.05
+
+           
             
             // Listen for ask question and clear chat triggers from global shortcuts
             NotificationCenter.default.addObserver(
@@ -1272,7 +1274,6 @@ extension ResponsePanel {
         ResponseOverlay.shared.panel?.orderFrontRegardless()
     }
 }
-
 // MARK: - CompactView Extensions
 extension CompactView {
     func triggerAskQuestionProgrammatically() {
@@ -1308,3 +1309,4 @@ extension CompactView {
         )
     }
 }
+
