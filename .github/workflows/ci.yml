@@ -1,0 +1,108 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: Server/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: ./Server
+      run: npm ci
+    
+    - name: Run tests
+      working-directory: ./Server
+      run: npm test
+      env:
+        NODE_ENV: test
+        OPENAI_API_KEY: test-key
+    
+    - name: Run linting
+      working-directory: ./Server
+      run: npm run lint
+    
+    - name: Check security vulnerabilities
+      working-directory: ./Server
+      run: npm audit --audit-level=moderate
+
+  test-ios:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+    
+    - name: Build iOS app
+      run: |
+        cd Luca
+        xcodebuild -project Luca.xcodeproj -scheme Luca -configuration Debug build
+    
+    - name: Run Swift tests
+      run: |
+        cd Luca
+        xcodebuild test -project Luca.xcodeproj -scheme Luca -destination 'platform=macOS'
+
+  security-scan:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  deploy-staging:
+    needs: [test-backend, test-ios]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to staging
+      run: |
+        echo "Deploying to staging environment"
+        # Add your staging deployment commands here
+        
+  deploy-production:
+    needs: [test-backend, test-ios, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to production
+      run: |
+        echo "Deploying to production environment"
+        # Add your production deployment commands here

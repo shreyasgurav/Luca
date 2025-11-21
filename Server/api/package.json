@@ -1,0 +1,17 @@
+{
+  "name": "luca-api-functions",
+  "version": "1.0.0",
+  "description": "Vercel API functions for Luca AI Assistant",
+  "main": "index.js",
+  "dependencies": {
+    "busboy": "^1.6.0",
+    "node-fetch": "^2.6.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "echo 'No build step required'",
+    "start": "echo 'This is a Vercel serverless function'"
+  }
+}

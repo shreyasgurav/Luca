@@ -1,0 +1,7 @@
+{
+  "firestore": {
+    "indexes": "firestore.indexes.json"
+  }
+}
+
+

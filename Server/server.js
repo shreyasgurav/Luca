@@ -1,71 +1,119 @@
-const config = require('./config');
 const http = require('http');
-const analyze = require('./functions/analyze');
-const chat = require('./functions/chat');
-const memory = require('./functions/memory');
-const embedding = require('./functions/embedding');
-const gmail = require('./functions/gmail');
-const places = require('./functions/places');
-const listen = require('./functions/listen');
+const { getOpenAIConfig } = require('./lib/openaiClient');
+const { PersistentAuthMiddleware } = require('./lib/redis');
+const corsMiddleware = require('./middleware/cors');
+const monitoringMiddleware = require('./middleware/monitoring');
+const logger = require('./lib/logger');
+const { initializeWebSocket } = require('./api/listen');
 
-// Set environment variables from config for compatibility
-process.env.OPENAI_API_KEY = config.OPENAI_API_KEY;
-process.env.OPENAI_BASE = config.OPENAI_BASE;
-process.env.OPENAI_MODEL = config.OPENAI_MODEL;
-process.env.PORT = config.PORT;
-process.env.S3_BUCKET = config.S3_BUCKET;
-process.env.S3_REGION = config.S3_REGION;
-process.env.S3_ACCESS_KEY = config.S3_ACCESS_KEY;
-process.env.S3_SECRET_KEY = config.S3_SECRET_KEY;
+const { OPENAI_API_KEY, OPENAI_MODEL } = getOpenAIConfig();
+
+// Initialize persistent auth
+const authMiddleware = new PersistentAuthMiddleware();
 
 const server = http.createServer((req, res) => {
-  // Add CORS headers
-  res.setHeader('Access-Control-Allow-Origin', config.CORS_ORIGIN);
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 200;
-    res.end();
-    return;
+  // Apply middleware in order
+  corsMiddleware.middleware(req, res, () => {
+    monitoringMiddleware.middleware(req, res, () => {
+      authMiddleware.authenticate(req, res, () => {
+        handleRoutes(req, res);
+      });
+    });
+  });
+});
+
+// Initialize WebSocket server
+initializeWebSocket(server);
+
+function handleRoutes(req, res) {
+
+  // Health check endpoint (no auth required)
+  if (req.url === '/api/health') {
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify(monitoringMiddleware.getHealthStatus()));
   }
-  
-  if (req.url === '/api/analyze') return analyze(req, res);
-  if (req.url === '/api/chat') return chat(req, res);
-  if (req.url === '/api/memory/extract') return memory(req, res);
-  if (req.url === '/api/embedding') return embedding(req, res);
-  if (req.url.startsWith('/api/gmail')) return gmail(req, res);
-  if (req.url.startsWith('/api/places')) return places(req, res);
-  if (req.url.startsWith('/api/listen')) return listen(req, res);
+
+  // Test endpoint
   if (req.url === '/api/test') {
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify({ 
       status: 'ok', 
-      model: config.OPENAI_MODEL,
-      api_configured: !!config.OPENAI_API_KEY && config.OPENAI_API_KEY !== 'your-openai-api-key-here'
+      model: OPENAI_MODEL,
+      api_configured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'your-openai-api-key-here',
+      environment: process.env.VERCEL ? 'Vercel' : 'Local'
     }));
   }
-  if (req.url === '/api/healthz') {
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ status: 'ok' }));
-  }
-  if (req.url.startsWith('/debug/listMemories')) {
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ 
-      message: 'Debug endpoint - would list memories from Firestore',
-      note: 'Implement with Firebase Admin SDK if needed'
-    }));
-  }
-  res.statusCode = 404; res.end('Not found');
-});
 
-const port = config.PORT;
-server.listen(port, () => {
-  console.log(`🚀 CheatingAI Server running on http://localhost:${port}`);
-  console.log(`🔑 OpenAI API: ${config.OPENAI_API_KEY ? 'Configured' : 'NOT CONFIGURED'}`);
-  console.log(`🤖 Model: ${config.OPENAI_MODEL}`);
-  if (!config.OPENAI_API_KEY || config.OPENAI_API_KEY === 'your-openai-api-key-here') {
-    console.log('⚠️  WARNING: Please configure your OpenAI API key in config.js');
+  // Metrics endpoint (for monitoring)
+  if (req.url === '/api/metrics') {
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify(monitoringMiddleware.getMetrics()));
+  }
+
+  // Route to appropriate handler
+  if (req.url === '/api/analyze') {
+    require('./api/analyze')(req, res);
+  } else if (req.url === '/api/chat') {
+    require('./api/chat')(req, res);
+  } else if (req.url === '/api/chat/stream') {
+    require('./api/streaming-chat')(req, res);
+  } else if (req.url === '/api/embedding') {
+    require('./api/embedding')(req, res);
+  } else if (req.url === '/api/places/search') {
+    require('./api/places')(req, res);
+  } else if (req.url === '/api/memory' || req.url === '/api/memory/extract') {
+    // Unified memory endpoint
+    require('./api/memory')(req, res);
+  } else if (req.url === '/api/memory/extract-transcript') {
+    require('./api/memory/extract-transcript')(req, res);
+  } else {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Endpoint not found' }));
+  }
+}
+
+// Graceful shutdown handling
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+async function gracefulShutdown(signal) {
+  logger.info(`Received ${signal}, starting graceful shutdown...`);
+  
+  server.close(() => {
+    logger.info('HTTP server closed');
+    
+    // Close Redis connection
+    if (authMiddleware.redis) {
+      authMiddleware.redis.disconnect().then(() => {
+        logger.info('Redis connection closed');
+        process.exit(0);
+      }).catch((err) => {
+        logger.error('Error closing Redis connection', { error: err.message });
+        process.exit(1);
+      });
+    } else {
+      process.exit(0);
+    }
+  });
+
+  // Force exit after 30 seconds
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000);
+}
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  logger.info(`Luca Server started`, {
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development',
+    model: OPENAI_MODEL,
+    apiConfigured: !!(OPENAI_API_KEY && OPENAI_API_KEY !== 'your-openai-api-key-here')
+  });
+  
+  if (!OPENAI_API_KEY || OPENAI_API_KEY === 'your-openai-api-key-here') {
+    logger.warn('OpenAI API key not configured');
   }
 });
 
