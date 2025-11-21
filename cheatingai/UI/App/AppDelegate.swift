@@ -1,0 +1,141 @@
+import Cocoa
+import SwiftUI
+import Carbon.HIToolbox
+import FirebaseCore
+import GoogleSignIn
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem!
+    private var menu: NSMenu!
+    private var selectionController: SelectionController?
+    private var globalHotKey: GlobalHotKey?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Initialize Firebase
+        FirebaseApp.configure()
+        
+        // Register for URL events (required for Google Sign-In redirect)
+        let appleEventManager = NSAppleEventManager.shared()
+        appleEventManager.setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:replyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+        
+        // Restore previous Google Sign-In session
+        AuthenticationManager.shared.restorePreviousSignIn()
+        
+        setupStatusItem()
+        setupGlobalHotKey()
+
+        // Pre-warm selection controller
+        selectionController = SelectionController()
+        
+        // Start location updates (with user consent)
+        LocationManager.shared.start()
+
+        // Let AuthenticationManager handle all UI state changes
+        // It will automatically show appropriate windows based on auth state
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        globalHotKey?.unregister()
+    }
+
+    private func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem.button {
+                    // Use Nova logo instead of system icon
+        if let novaLogo = NSImage(named: "NovaLogo") {
+            novaLogo.size = NSSize(width: 18, height: 18)
+            button.image = novaLogo
+        } else {
+            button.image = NSImage(systemSymbolName: "rectangle.dashed", accessibilityDescription: "Nova")
+        }
+            button.imagePosition = .imageOnly
+            button.target = self
+            button.action = #selector(toggleSelection)
+        }
+
+        menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Open Nova Assistant\t⌘\\", action: #selector(toggleSelection), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Open Main Window", action: #selector(showSignIn), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Quit Nova", action: #selector(quit), keyEquivalent: "q"))
+        statusItem.menu = menu
+    }
+
+    private func setupGlobalHotKey() {
+        globalHotKey = GlobalHotKey(keyCode: UInt32(kVK_ANSI_Backslash), modifiers: [.command]) { [weak self] in
+            self?.toggleResponseOverlay()
+        }
+        globalHotKey?.register()
+    }
+    
+    private func setupToggleOverlayHotKey() {
+        // This is now redundant since globalHotKey handles Command+\
+        // Keeping for backward compatibility but not registering
+    }
+    
+    // Command+Return hotkey removed as requested
+
+    @objc private func toggleSelection() {
+        // Directly show the response overlay
+        ResponseOverlay.shared.show(text: "")
+    }
+    
+    @objc private func toggleResponseOverlay() {
+        // Toggle the floating modal visibility
+        if let panel = ResponseOverlay.shared.panel {
+            if panel.isVisible {
+                panel.orderOut(nil)
+            } else {
+                panel.orderFrontRegardless()
+                panel.center()
+            }
+        } else {
+            // If panel doesn't exist, create and show it
+            ResponseOverlay.shared.show()
+        }
+    }
+    
+
+
+    @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor?, replyEvent: NSAppleEventDescriptor?) {
+        if let urlString = event?.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+           let url = URL(string: urlString) {
+            // Let Google Sign-In SDK handle the URL
+            GIDSignIn.sharedInstance.handle(url)
+        }
+    }
+    
+    @objc private func showSignIn() {
+        MainWindow.shared.show()
+    }
+    
+    @objc private func signOut() {
+        Task { @MainActor in
+            AuthenticationManager.shared.signOut()
+        }
+    }
+    
+    @objc private func showMemoryManager() {
+        MemoryManagementWindow.shared.show()
+    }
+    
+    @objc private func showVectorMemory() {
+        VectorMemoryWindow.shared.show()
+    }
+    
+    @objc private func showDashboard() {
+        MainWindow.shared.show()
+    }
+
+    @objc private func quit() {
+        NSApp.terminate(nil)
+    }
+}
+
+
