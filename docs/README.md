@@ -1,4 +1,4 @@
-# Luca — Neural Omni-View Assistant
+# Luca 
 
 An on-device macOS assistant that sees your screen, understands context, and helps across tasks. Luca captures, analyzes, chats, and remembers—combining multimodal AI with a refined desktop UX.
 
