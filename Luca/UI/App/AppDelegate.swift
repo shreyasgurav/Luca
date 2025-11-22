@@ -25,9 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Pre-warm selection controller
         selectionController = SelectionController()
         
-
-        // Let AuthenticationManager handle all UI state changes
-        // It will automatically show appropriate windows based on auth state
+        // Show main window on app launch
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            MainWindow.shared.show()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
