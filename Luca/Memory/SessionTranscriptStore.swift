@@ -77,7 +77,7 @@ final class SessionTranscriptStore: ObservableObject, DeepgramSTTDelegate {
     }
     
     private var currentSession: ListenSession?
-    private let sessionStorageService = FirestoreSessionService.shared
+    private let sessionStorageService = LocalSessionStorageService.shared
     
     // Chunking for vector indexing
     private var chunkBufferText: String = ""
@@ -165,7 +165,7 @@ final class SessionTranscriptStore: ObservableObject, DeepgramSTTDelegate {
                 }
                 // Trigger background backfill of legacy segments into subcollection (safe, idempotent)
                 Task.detached { [sessions = storedSessions] in
-                    for s in sessions { await FirestoreSessionService.shared.backfillLegacySegmentsIfNeeded(session: s) }
+                    for s in sessions { await LocalSessionStorageService.shared.backfillLegacySegmentsIfNeeded(session: s) }
                 }
             } catch {
                 await MainActor.run {

@@ -3,8 +3,8 @@ import Foundation
 /// Local session storage service (replaces Firestore persistence).
 ///
 /// Sessions are serialized to JSON inside the user's Application Support directory.
-final class FirestoreSessionService {
-    static let shared = FirestoreSessionService()
+final class LocalSessionStorageService {
+    static let shared = LocalSessionStorageService()
     
     private let storageQueue = DispatchQueue(label: "com.luca.sessionStorage", qos: .utility)
     private let storageURL: URL
@@ -136,3 +136,4 @@ final class FirestoreSessionService {
         cachedSessions.sort { $0.startTime > $1.startTime }
     }
 }
+

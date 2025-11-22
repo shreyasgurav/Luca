@@ -89,6 +89,7 @@ Extract ONLY significant, memorable facts that meet ALL criteria:
 - Personal identity (name, age, location, family, physical attributes)
 - Strong preferences with specifics ("I love coffee" → YES, "that's cool" → NO)
 - Professional details (job title, company name, skills, projects with names)
+- Education details (college name, university, school name, major, degree) - ALWAYS extract these!
 - Explicit instructions ("remember to...", "always...", "never...")
 - Goals with specifics ("launching product in Q2", "learning Spanish")
 - Relationships with names ("my sister Emma", "my boss John")
@@ -106,7 +107,7 @@ Extract ONLY significant, memorable facts that meet ALL criteria:
 MINIMUM IMPORTANCE THRESHOLDS:
 - personal: 0.8 (name, age, location, family)
 - preference: 0.65 (must be specific, strong preference)
-- professional: 0.7 (job, company, specific skills)
+- professional: 0.65 (job, company, college, university, school, specific skills) - LOWERED to capture education
 - goal: 0.65 (must have timeline or specific outcome)
 - instruction: 0.75 (explicit directive)
 - relationship: 0.7 (must include names)
@@ -121,6 +122,9 @@ Output: [{"kind":"personal","text":"User's name is Sarah","summary":"Name: Sarah
 
 Input: "Call me Alex, I'm working on a SaaS project launching in Q2"
 Output: [{"kind":"personal","text":"User prefers to be called Alex","summary":"Nickname: Alex","importance":0.9,"tags":["nickname","Alex"]},{"kind":"goal","text":"User is launching a SaaS project in Q2","summary":"SaaS launch Q2","importance":0.8,"tags":["saas","project","q2","launch"]}]
+
+Input: "My college name is KJSCE" or "I go to MIT" or "I study at Stanford"
+Output: [{"kind":"professional","text":"User's college/university is KJSCE","summary":"College: KJSCE","importance":0.85,"tags":["college","kjcse","education"]}]
 
 Input: "Hey, that's cool" or "Thanks" or "Sounds good"
 Output: []

@@ -1,8 +1,6 @@
 import Cocoa
 import SwiftUI
 import Carbon.HIToolbox
-import FirebaseCore
-import FirebaseFirestore
 import CoreGraphics
 import AVFoundation
 import Speech
@@ -17,16 +15,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Set dock visibility based on screen capture setting
         let shouldHideFromDock = !AppConfig.isVisibleInScreenCapture
         NSApp.setActivationPolicy(shouldHideFromDock ? .accessory : .regular)
-
-        // Initialize Firebase
-        FirebaseApp.configure()
-        // Avoid local LevelDB persistence to prevent lock contention
-        let fsSettings = FirestoreSettings()
-        fsSettings.cacheSettings = MemoryCacheSettings() // Disable on-disk LevelDB cache
-        Firestore.firestore().settings = fsSettings
-        
-        // 🌟 Local server startup removed - now using cloud API
-        // ServerManager.shared.startServer() // No longer needed
         
         // Sync auto-launch setting with Login Items
         AppConfig.syncAutoLaunchWithLoginItems()

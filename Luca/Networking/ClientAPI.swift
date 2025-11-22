@@ -1,5 +1,4 @@
 import Foundation
-import FirebaseAuth
 
 struct AnalyzeResponse: Decodable {
     let assistant_text: String?
@@ -421,7 +420,7 @@ final class ClientAPI: @unchecked Sendable {
             
             let payload = [
                 "content": content,
-                "userId": Auth.auth().currentUser?.uid ?? "unknown",
+                "userId": APIKeyManager.shared.localUserId,
                 "sessionId": VectorMemoryManager.shared.currentSessionId ?? ""
             ]
             
@@ -497,7 +496,7 @@ final class ClientAPI: @unchecked Sendable {
             
             let payload = [
                 "content": content,
-                "userId": Auth.auth().currentUser?.uid ?? "unknown",
+                "userId": APIKeyManager.shared.localUserId,
                 "sessionId": VectorMemoryManager.shared.currentSessionId ?? ""
             ]
             

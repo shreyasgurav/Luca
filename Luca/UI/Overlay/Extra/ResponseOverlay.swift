@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import FirebaseAuth
 import AVFoundation
 import Speech
 
@@ -23,7 +22,7 @@ final class ResponseOverlay: NSObject {
     func show(text: String = "") {
         DispatchQueue.main.async {
             // Authentication check
-            if Auth.auth().currentUser == nil {
+            if !AuthenticationManager.shared.isAuthenticated {
                 MainWindow.shared.show()
                 return
             }
@@ -51,7 +50,7 @@ final class ResponseOverlay: NSObject {
     func showExpandedChat() {
         DispatchQueue.main.async {
             // Authentication check
-            if Auth.auth().currentUser == nil {
+            if !AuthenticationManager.shared.isAuthenticated {
                 MainWindow.shared.show()
                 return
             }

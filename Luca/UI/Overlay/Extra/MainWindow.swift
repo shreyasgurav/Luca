@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import FirebaseAuth
 
 class MainWindow {
     static let shared = MainWindow()
@@ -28,7 +27,7 @@ class MainWindow {
     
     @objc private func authenticationStateChanged() {
         DispatchQueue.main.async {
-            let isAuthenticated = AuthenticationManager.shared.isAuthenticated || Auth.auth().currentUser != nil
+            let isAuthenticated = AuthenticationManager.shared.isAuthenticated
             
             print("🔍 Authentication state changed - isAuthenticated: \(isAuthenticated)")
             
@@ -134,8 +133,7 @@ class MainWindow {
         // Add sidebar toggle button to the title bar
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             // Check if user is authenticated to determine title bar content
-            // Use both AuthenticationManager and Firebase Auth for robustness
-            let isAuthenticated = AuthenticationManager.shared.isAuthenticated || Auth.auth().currentUser != nil
+            let isAuthenticated = AuthenticationManager.shared.isAuthenticated
             
             if isAuthenticated {
             self.addSidebarToggleToTitleBar()

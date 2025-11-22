@@ -1367,7 +1367,9 @@ class VectorMemoryManager: ObservableObject {
             "remember", "always", "never",
             "project", "goal", "working on",
             "nickname", "call me", "my birthday", "my age",
-            "my height", "my weight", "my job", "my company"
+            "my height", "my weight", "my job", "my company",
+            "my college", "college", "my university", "university",
+            "my school", "i go to", "i study at", "i attend"
         ]
         
         let lowerUser = user.lowercased()
@@ -1431,9 +1433,10 @@ class VectorMemoryManager: ObservableObject {
         // Try server-side extraction first
         let extractedFacts = await fetchExtractedFactsFromServer(content: content, sessionId: sessionId)
         
-        // Filter out low-importance facts
+        // Filter out low-importance facts (lower threshold for personal/professional info)
         let importantFacts = extractedFacts.filter { fact in
-            fact.importance >= 0.5 && fact.text.count > 10
+            let minImportance = (fact.kind == "personal" || fact.kind == "professional") ? 0.4 : 0.5
+            return fact.importance >= minImportance && fact.text.count > 10
         }
         
         if importantFacts.isEmpty {

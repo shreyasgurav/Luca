@@ -1,5 +1,4 @@
 import SwiftUI
-import FirebaseFirestore
 
 struct MemoryManagementView: View {
     @StateObject private var memoryManager = VectorMemoryManager.shared

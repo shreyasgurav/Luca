@@ -1,10 +1,9 @@
 import Foundation
-import FirebaseFirestore
 
 // MARK: - Dataset Models
 
 struct CustomDataset: Codable, Identifiable {
-    @DocumentID var id: String?
+    var id: String?
     let userId: String
     var name: String
     var description: String

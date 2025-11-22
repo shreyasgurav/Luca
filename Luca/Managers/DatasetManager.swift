@@ -1,12 +1,10 @@
 import Foundation
-import FirebaseFirestore
-import FirebaseAuth
 
 @MainActor
 class DatasetManager: ObservableObject {
     static let shared = DatasetManager()
     
-    private let db = Firestore.firestore()
+    // Firestore removed - DatasetManager is deprecated
     @Published var datasets: [CustomDataset] = []
     @Published var selectedDatasetId: String? = nil // nil = "No Dataset"
     @Published var isLoading = false
@@ -19,7 +17,7 @@ class DatasetManager: ObservableObject {
     }
     
     private var currentUserId: String? {
-        Auth.auth().currentUser?.uid
+        APIKeyManager.shared.localUserId
     }
     
     // MARK: - Selected Dataset Management
@@ -52,161 +50,34 @@ class DatasetManager: ObservableObject {
     // MARK: - CRUD Operations
     
     func fetchDatasets() async {
-        guard let userId = currentUserId else {
-            print("❌ No user ID available")
-            return
-        }
-        
+        // Firestore removed - DatasetManager is deprecated
         isLoading = true
         defer { isLoading = false }
-        
-        do {
-            let snapshot = try await db.collection("custom_datasets")
-                .whereField("userId", isEqualTo: userId)
-                .order(by: "updatedAt", descending: true)
-                .getDocuments()
-            
-            let fetchedDatasets = snapshot.documents.compactMap { doc -> CustomDataset? in
-                try? doc.data(as: CustomDataset.self)
-            }
-            
-            datasets = fetchedDatasets
-            print("✅ Fetched \(datasets.count) datasets")
-        } catch {
-            print("❌ Error fetching datasets: \(error)")
-        }
+        datasets = []
+        print("⚠️ DatasetManager is deprecated - Firestore removed")
     }
     
     func createDataset(name: String, description: String, category: DatasetCategory, content: String) async -> String? {
-        guard let userId = currentUserId else {
-            print("❌ No user ID available for dataset creation")
-            print("❌ Current user: \(Auth.auth().currentUser?.email ?? "nil")")
-            return nil
-        }
-        
-        print("🔄 Creating dataset for user: \(userId)")
-        print("🔄 Dataset name: \(name)")
-        print("🔄 Content length: \(content.count) characters")
-        
-        // Generate embedding for content
-        guard let embedding = await generateEmbedding(for: content) else {
-            print("❌ Failed to generate embedding")
-            return nil
-        }
-        
-        print("✅ Generated embedding with \(embedding.count) dimensions")
-        
-        let dataset = CustomDataset(
-            id: UUID().uuidString,
-            userId: userId,
-            name: name,
-            description: description,
-            category: category,
-            content: content,
-            embedding: embedding,
-            createdAt: Date(),
-            updatedAt: Date(),
-            lastUsedAt: nil
-        )
-        
-        do {
-            print("🔄 Saving to Firebase collection: custom_datasets")
-            print("🔄 Document ID: \(dataset.id ?? "nil")")
-            guard let datasetId = dataset.id else {
-                print("❌ Dataset ID is nil")
-                return nil
-            }
-            try await db.collection("custom_datasets").document(datasetId).setData(from: dataset)
-            print("✅ Created dataset: \(name) with ID: \(datasetId)")
-            
-            // Refresh datasets
-            await fetchDatasets()
-            
-            return datasetId
-        } catch {
-            print("❌ Error creating dataset: \(error)")
-            print("❌ Error details: \(error.localizedDescription)")
-            
-            // Check for specific Firestore error types
-            if let nsError = error as NSError? {
-                if nsError.domain == "FIRFirestoreErrorDomain" {
-                    switch nsError.code {
-                    case 7: // PERMISSION_DENIED
-                        print("🔒 Permission denied - check Firestore security rules")
-                    case 14: // UNAVAILABLE
-                        print("🌐 Network unavailable - check internet connection")
-                    case 3: // INVALID_ARGUMENT
-                        print("📝 Invalid argument - check dataset data structure")
-                    default:
-                        print("🔥 Other Firestore error (code: \(nsError.code))")
-                    }
-                }
-            }
-            
-            return nil
-        }
+        // Firestore removed - DatasetManager is deprecated
+        print("⚠️ DatasetManager is deprecated - Firestore removed")
+        return nil
     }
     
     func updateDataset(id: String, name: String, description: String, category: DatasetCategory, content: String) async -> Bool {
-        guard currentUserId != nil else { return false }
-        
-        // Generate new embedding for updated content
-        guard let embedding = await generateEmbedding(for: content) else {
-            print("❌ Failed to generate embedding")
-            return false
-        }
-        
-        let updateData: [String: Any] = [
-            "name": name,
-            "description": description,
-            "category": category.rawValue,
-            "content": content,
-            "embedding": embedding,
-            "updatedAt": FieldValue.serverTimestamp()
-        ]
-        
-        do {
-            try await db.collection("custom_datasets").document(id).updateData(updateData)
-            print("✅ Updated dataset: \(name)")
-            
-            // Refresh datasets
-            await fetchDatasets()
-            
-            return true
-        } catch {
-            print("❌ Error updating dataset: \(error)")
-            return false
-        }
+        // Firestore removed - DatasetManager is deprecated
+        print("⚠️ DatasetManager is deprecated - Firestore removed")
+        return false
     }
     
     func deleteDataset(id: String) async -> Bool {
-        do {
-            try await db.collection("custom_datasets").document(id).delete()
-            print("✅ Deleted dataset: \(id)")
-            
-            // If this was the selected dataset, clear selection
-            if selectedDatasetId == id {
-                setSelectedDataset(nil)
-            }
-            
-            // Refresh datasets
-            await fetchDatasets()
-            
-            return true
-        } catch {
-            print("❌ Error deleting dataset: \(error)")
-            return false
-        }
+        // Firestore removed - DatasetManager is deprecated
+        print("⚠️ DatasetManager is deprecated - Firestore removed")
+        return false
     }
     
     private func updateLastUsedDate(datasetId: String) async {
-        do {
-            try await db.collection("custom_datasets").document(datasetId).updateData([
-                "lastUsedAt": FieldValue.serverTimestamp()
-            ])
-        } catch {
-            print("❌ Error updating last used date: \(error)")
-        }
+        // Firestore removed - DatasetManager is deprecated
+        print("⚠️ DatasetManager is deprecated - Firestore removed")
     }
     
     // MARK: - Embedding Generation
