@@ -113,6 +113,9 @@ class MainWindow {
         let mainAppView = MainAppView()
         let hostingController = NSHostingController(rootView: mainAppView)
         
+        // Force light appearance on hosting controller
+        hostingController.view.appearance = NSAppearance(named: .aqua)
+        
         // Create window with initial size, position will be set by center() call
         self.window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 750),
@@ -123,6 +126,9 @@ class MainWindow {
         
         // Keep the default title bar but make it transparent for custom content
         self.window?.titlebarAppearsTransparent = true
+        
+        // Force light appearance regardless of system theme
+        self.window?.appearance = NSAppearance(named: .aqua)
         
         // Set window background to pure white
         self.window?.backgroundColor = NSColor.white
@@ -233,7 +239,8 @@ class MainWindow {
         sectionTitleLabel.isBezeled = false
         sectionTitleLabel.drawsBackground = false
         sectionTitleLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
-        sectionTitleLabel.textColor = NSColor.labelColor
+        // Use fixed dark color instead of adaptive labelColor
+        sectionTitleLabel.textColor = NSColor(white: 0.0, alpha: 1.0)
         sectionTitleLabel.alignment = .center
         
         titleBarView.addSubview(sectionTitleLabel)
@@ -254,6 +261,9 @@ class MainWindow {
         searchField.action = #selector(searchFieldChanged)
         searchField.isHidden = true
         
+        // Force light appearance for search field
+        searchField.appearance = NSAppearance(named: .aqua)
+        
         // Remove only the blue focus ring, keep original border
         searchField.focusRingType = .none
         
@@ -264,11 +274,14 @@ class MainWindow {
         // Hide the built-in clear button by removing the search menu
         if let cell = searchField.cell as? NSSearchFieldCell {
             cell.cancelButtonCell = nil
+            // Set fixed text color for search field
+            cell.textColor = NSColor(white: 0.0, alpha: 1.0)
         }
         
-        // Add subtle darker border with rounded corners
+        // Add subtle darker border with rounded corners - use fixed light colors
         searchField.wantsLayer = true
-        searchField.layer?.borderColor = NSColor.controlShadowColor.cgColor
+        searchField.layer?.backgroundColor = NSColor(white: 1.0, alpha: 1.0).cgColor
+        searchField.layer?.borderColor = NSColor(white: 0.75, alpha: 1.0).cgColor
         searchField.layer?.borderWidth = 0.5
         searchField.layer?.cornerRadius = 12.0
         
@@ -292,10 +305,11 @@ class MainWindow {
         searchButton.action = #selector(searchButtonClicked)
         searchButton.isEnabled = true
         
-        // Style the button with background
+        // Style the button with background - use fixed light color
         searchButton.wantsLayer = true
+        searchButton.appearance = NSAppearance(named: .aqua)
         DispatchQueue.main.async {
-            searchButton.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+            searchButton.layer?.backgroundColor = NSColor(white: 0.95, alpha: 1.0).cgColor
             searchButton.layer?.cornerRadius = 9
             searchButton.layer?.masksToBounds = true
         }
@@ -431,7 +445,8 @@ class MainWindow {
         sectionTitleLabel.isBezeled = false
         sectionTitleLabel.drawsBackground = false
         sectionTitleLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
-        sectionTitleLabel.textColor = NSColor.labelColor
+        // Use fixed dark color instead of adaptive labelColor
+        sectionTitleLabel.textColor = NSColor(white: 0.0, alpha: 1.0)
         sectionTitleLabel.alignment = .center
         
         titleBarView.addSubview(sectionTitleLabel)
@@ -598,7 +613,8 @@ class HoverButton: NSButton {
     
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        // Use fixed light gray color instead of adaptive controlBackgroundColor
+        layer?.backgroundColor = NSColor(white: 0.9, alpha: 1.0).cgColor
     }
     
     override func mouseExited(with event: NSEvent) {

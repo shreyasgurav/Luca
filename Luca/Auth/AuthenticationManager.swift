@@ -27,11 +27,6 @@ class AuthenticationManager: ObservableObject {
                 }
             }
             .store(in: &cancellables)
-        
-        // Handle initial app launch state
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            MainWindow.shared.show()
-        }
     }
     
     private var cancellables = Set<AnyCancellable>()

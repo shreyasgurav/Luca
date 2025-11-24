@@ -25,8 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Pre-warm selection controller
         selectionController = SelectionController()
         
-        // Show main window on app launch
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        // Initialize authentication manager immediately so it can drive UI state
+        Task { @MainActor in
+            _ = AuthenticationManager.shared
             MainWindow.shared.show()
         }
     }

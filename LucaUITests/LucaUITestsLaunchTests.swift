@@ -20,25 +20,14 @@ final class LucaUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--uitesting"]
         app.launch()
-        
-        // Wait longer for app to fully initialize - window might take time to appear
-        // Skip screenshot if window doesn't appear (graceful failure for UI tests)
-        let window = app.windows.firstMatch
-        let windowExists = window.waitForExistence(timeout: 10.0)
-        
-        if windowExists {
-            // Small delay to ensure UI is fully rendered
-            sleep(1)
-            
-            let attachment = XCTAttachment(screenshot: app.screenshot())
-            attachment.name = "Launch Screen"
-            attachment.lifetime = .keepAlways
-            add(attachment)
-        } else {
-            // Window didn't appear, but don't fail the test - just log it
-            print("⚠️ Main window did not appear within timeout - this may be expected if app requires manual interaction")
-        }
+
+        // Insert steps here to perform after app launch but before taking a screenshot,
+        // such as logging into a test account or navigating somewhere in the app
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Launch Screen"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }
